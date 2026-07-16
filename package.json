@@ -1,0 +1,9 @@
+{
+  "name": "modwiz-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small serverless backend for the Modwiz app. Currently just one endpoint: Merlin chat.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0"
+  }
+}
