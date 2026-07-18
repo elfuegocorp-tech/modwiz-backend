@@ -54,6 +54,10 @@ module.exports = async function handler(req, res) {
     res.status(200).json({ url: `https://${storageZone}.b-cdn.net/${fileName}` });
   } catch (err) {
     console.error('Bunny storage upload error:', err);
-    res.status(502).json({ error: 'Could not reach Bunny storage right now. Please try again.' });
+    // Surfacing the real cause (e.g. DNS failure on a bad hostname) instead
+    // of a generic message — this is a low-traffic internal endpoint, safe
+    // to show the underlying error while diagnosing setup issues.
+    const detail = err?.cause?.message || err?.message || 'unknown error';
+    res.status(502).json({ error: `Could not reach Bunny storage right now: ${detail}` });
   }
 };
