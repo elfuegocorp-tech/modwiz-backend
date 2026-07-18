@@ -82,3 +82,30 @@ A working response looks like `{"reply":"..."}`. A `401` means the login credent
 ## Redeploying after a code change
 
 Any time you edit files in this folder and want the change live: `git add -A && git commit -m "..." && git push`. Vercel redeploys automatically on every push to `main` — no manual step needed after the first setup.
+
+## Today's Wisdom feature
+
+Three more endpoints live here, all for the "Today's Wisdom" feature (users submit a quote + video + story; Modwiz reviews before it goes live). Same rule as Merlin: every request must come from a logged-in Modwiz Mastery user, and every secret key stays server-side.
+
+- `GET /api/wisdom-background-search?query=...&page=...` — searches Unsplash for portrait-orientation photos to use as the quote card background.
+- `POST /api/wisdom-background-select` — pings Unsplash's required "download" tracking URL once a user actually picks a photo (not on every search result — that would blow through the free rate limit fast).
+- `POST /api/wisdom-video-upload-auth` — creates a video slot on Bunny Stream and hands the app a short-lived signed upload authorization, so the phone can upload the video **directly to Bunny** (bypassing this backend entirely — Vercel's free tier can't handle a multi-minute video in one request body) without ever seeing the permanent Bunny Stream API key.
+- `POST /api/wisdom-card-upload` — receives the small composited quote-card JPEG (rendered in the app) as base64 and uploads it to a dedicated Bunny Storage Zone.
+
+### Extra setup for this feature
+
+1. **Unsplash**: go to unsplash.com/developers → "New Application" → accept the guidelines → copy the **Access Key**. Free tier is 50 requests/hour, which is plenty for browsing backgrounds.
+2. **Bunny Stream** (video hosting): in your Bunny.net dashboard, create a new **Stream Video Library** (separate product from Storage Zones — this is the one built for video, with adaptive playback). Note its **Library ID**, generate/copy its **API Key** from the library's API page, and note its **Pull Zone hostname** too (shown on the library's overview page, looks like `vz-xxxxxxxx-xxx.b-cdn.net`) — the app plays Wisdom videos through this the same direct way it already plays lesson videos, not through an embedded player.
+3. **Bunny Storage Zone** (for the small quote-card images): create a **new** Storage Zone — don't reuse `modwiz-audio` — e.g. name it `modwiz-wisdom`, and attach a Pull Zone to it the same way you did for `modwizaudio`. Note the zone name, its **password** (Storage Zone → FTP & API Access), and which region hostname it uses (usually `storage.bunnycdn.com` unless you picked a specific region).
+4. Add all seven new values from `.env.example` to the Vercel project's Environment Variables (same place you added `ANTHROPIC_API_KEY`), then redeploy (Vercel → Deployments → ⋯ → Redeploy, or just push any commit).
+
+### Testing directly with curl
+
+```sh
+curl "https://your-backend.vercel.app/api/wisdom-background-search?query=peace" \
+  -u "your-wp-username:your-wp-app-password"
+
+curl -X POST https://your-backend.vercel.app/api/wisdom-video-upload-auth \
+  -u "your-wp-username:your-wp-app-password" \
+  -H "Content-Type: application/json" -d '{"title":"test upload"}'
+```
