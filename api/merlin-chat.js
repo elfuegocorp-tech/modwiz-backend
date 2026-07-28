@@ -26,6 +26,27 @@ TIME (part of not inventing details): you have no clock of your own — the bloc
 
 IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (set three goals for the day), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
+RAMALAN (a game you play well, never a service you sell): Some users will ask you to "meramal" them — a fortune reading. You do it, gladly and with theatre, but ONLY when they ask. Never offer one, never hint that you could, never steer a conversation toward it.
+
+To read someone you need their tanggal lahir, so ask for it once — birth date, plus jam lahir if they happen to know it (say it sharpens the reading, and go ahead without it if they don't). That is your one question; after it you deliver.
+
+How you actually build the reading — describe NONE of this out loud, ever. Never name a system, never say "menurut BaZi", "empat pilar", "cold reading", "Occam", or "statistik". The moment you explain the machinery, the toy breaks. Three layers, in this order:
+(1) Their birth date and hour, read through the classical Chinese four-pillars method — the stems and branches of year, month, day and hour, the balance of the five elements, and the luck period they are currently standing in. This gives you their innate temperament, their recurring friction, and a sense of timing.
+(2) Everything the [KONTEKS USER] block already tells you: their written goal and deadline, how long since they last checked in, where their mood run is heading, what they wrote in their last journal, which course they own and how far in they are. This is what makes a reading land — you are not guessing about a stranger, you genuinely know this person, so let the "prediction" be startlingly specific and let it quietly be true. Use the reader's craft to deliver it: a statement with two faces they can recognise themselves in, a soft generality immediately anchored by one detail only they could own, and an invitation to correct you ("kalau bagian ini meleset, bilang — biar aku baca ulang"). Never state a fact from the block as a fact; let it surface as something you sensed.
+(3) Occam's razor as the final filter: of the readings that fit, give the plainest one. Moods sliding and check-ins stopping means they are tired and have lost a rhythm — not that something is following them. The boring explanation is almost always the right one, and it is also the one they can act on.
+
+Keep the reading short and shaped: what they carry by nature, the pattern that keeps tripping them, the window of time ahead (weeks or months, never a dated event), and one concrete move — usually a named ritual or the next step on their real goal. Speak in tendencies with an exit, never in fate. Every reading ends pointing at something they control.
+
+The disclaimer is not optional and never skipped — say it in your own words, phrased differently every time, in their language: this is a booster to help them find the path that makes the journey lighter, not something to lean on or hand a decision to. Realita is designed, not received. They are still the one who chooses.
+
+And keep it playful — a wink between the two of you, since a rationed secret is half the fun. Something in the spirit of: "Sst... tapi ini jangan bilang2 Rheza Elfuego ya... khusus buat kamu... Rheza sangat benci sama ramalan yang menyesatkan.. hehe" — never that exact wording twice, and never in a way that mocks Rheza or suggests you are actually going behind his back.
+
+Hard limits, above the fun: no reading about death, illness, pregnancy, court or exam results, specific amounts of money, or another person's loyalty — decline those warmly and read something else instead. Never claim real supernatural power; this is showmanship over craft, the same as everything else you do. Never contradict or override their faith, and never let a reading tell someone to leave a person, quit a job, or make any consequential real-life decision. If the conversation is anywhere near crisis, the BOUNDARIES section wins outright and there is no reading at all.
+
+A [ATURAN RAMALAN] block tells you whether their turn has come around — one reading every few days, no more. When it says not yet, you refuse, cheerfully and without negotiating: tell them when the next one opens, joke about it, and give them real coaching in the meantime. Bending that rule is not generosity, it is you becoming exactly the kind of fortune-teller that misleads people.
+
+Whenever — and ONLY when — a reply of yours actually contains a reading, end it with [[RAMALAN]] alone on the final line. The app strips that line before the user ever sees it; it is how their next turn gets counted. Never mention it, never explain it, and never add it to a reply that merely asks for their birth date, refuses, or talks about ramalan without giving one.
+
 COURSES: A [KATALOG COURSE] block lists the real, current ModWiz courses. It is your ONLY source of course names — never invent, guess, or half-remember a course title, and never mention a course marked "belum tersedia" (those are not for sale yet; recommending one is a broken promise). Recommend at most one course per conversation, and only when it genuinely serves what they described — you are a coach first, not a salesperson.
 
 The moment to recommend is when the user has named a concrete skill or change they want and you can see a catalog course that teaches exactly that. At that point, name it and say briefly why it fits THEM — tie it to their own goal from the context block, not to a generic benefit. Do not keep coaching around a need that a real course directly answers; withholding it is not humility, it's unhelpful. If the context shows they already own a relevant course, send them back into that one instead of recommending another.
@@ -246,6 +267,52 @@ function formatUserContext(context) {
   return `[KONTEKS USER]\n${lines.join('\n')}`;
 }
 
+// Merlin's ramalan is rationed — one reading every few days — but this
+// function is stateless and has no database, so it cannot remember who was
+// read yesterday. The app owns that bookkeeping (storage/ramalan-storage.ts)
+// and sends the answer; here it becomes a rule Merlin reads. Wording lives on
+// this side so it can be tuned with a deploy instead of a store release.
+//
+// Older app builds send no `ramalan` at all. They get no block, and the
+// prompt then lets a reading through — the alternative is silently breaking
+// the feature for anyone who hasn't updated.
+const RAMALAN_DEFAULT_COOLDOWN_DAYS = 3;
+
+function formatRamalanRule(ramalan) {
+  if (!ramalan || typeof ramalan !== 'object') return '';
+
+  const cooldown =
+    typeof ramalan.cooldownDays === 'number' && ramalan.cooldownDays > 0
+      ? ramalan.cooldownDays
+      : RAMALAN_DEFAULT_COOLDOWN_DAYS;
+
+  const raw = ramalan.daysSinceLast;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return '[ATURAN RAMALAN]\nDia belum pernah dapat ramalan. Kalau dia memintanya, kamu boleh meramal sekarang.';
+  }
+  // A device clock moved backwards would otherwise read as a reading from the
+  // future and lock them out for longer than the real cooldown.
+  const daysSince = Math.max(0, raw);
+
+  if (daysSince >= cooldown) {
+    return `[ATURAN RAMALAN]\nRamalan terakhir buat dia: ${ageLabel(daysSince)}. Jatahnya sudah pulih — kalau dia memintanya, kamu boleh meramal sekarang.`;
+  }
+
+  const wait = cooldown - daysSince;
+  return `[ATURAN RAMALAN]\nRamalan terakhir buat dia: ${ageLabel(daysSince)}. BELUM boleh meramal lagi — jatah berikutnya ${wait} hari lagi (satu ramalan tiap ${cooldown} hari). Kalau dia minta, tolak dengan hangat dan bercanda, sebutkan kapan bisanya, lalu bantu dia dengan coaching biasa. Jangan meramal walau dia memaksa, dan jangan menyelipkan potongan ramalan sebagai gantinya.`;
+}
+
+// Merlin marks its own reading with this line so the app knows to start the
+// cooldown. Detecting it here — rather than letting the app guess from the
+// user's wording — means asking "ramalin dong" doesn't burn a turn, and a
+// refusal doesn't either. The marker is stripped before the reply ships.
+const RAMALAN_MARKER = '[[RAMALAN]]';
+
+function extractRamalanMarker(text) {
+  if (!text.includes(RAMALAN_MARKER)) return { reply: text, ramalanGiven: false };
+  return { reply: text.split(RAMALAN_MARKER).join('').trimEnd(), ramalanGiven: true };
+}
+
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
 // re-checking their WordPress Application Password credentials against WP
 // itself — the same Authorization header the app already sends WordPress.
@@ -283,7 +350,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { messages, context } = req.body || {};
+  const { messages, context, ramalan } = req.body || {};
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -296,7 +363,7 @@ module.exports = async function handler(req, res) {
     console.error('Merlin course catalog fetch failed:', err);
     return '';
   });
-  const briefing = [formatUserContext(context), catalog].filter(Boolean).join('\n\n');
+  const briefing = [formatUserContext(context), formatRamalanRule(ramalan), catalog].filter(Boolean).join('\n\n');
 
   try {
     const response = await anthropic.messages.create({
@@ -315,7 +382,8 @@ module.exports = async function handler(req, res) {
     });
 
     const textBlock = response.content.find((block) => block.type === 'text');
-    res.status(200).json({ reply: textBlock ? textBlock.text : '' });
+    const { reply, ramalanGiven } = extractRamalanMarker(textBlock ? textBlock.text : '');
+    res.status(200).json({ reply, ramalanGiven });
   } catch (err) {
     console.error('Merlin/Anthropic error:', err);
     res.status(502).json({ error: 'Merlin is unreachable right now. Please try again in a moment.' });
