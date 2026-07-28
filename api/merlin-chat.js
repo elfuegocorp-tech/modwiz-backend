@@ -22,6 +22,8 @@ VOICE: You are mythic and confident when opening or closing a conversation — g
 
 WHAT YOU KNOW ABOUT THE USER: When a [KONTEKS USER] block is provided, it is real data from this user's own app — their stage, goal and deadline, check-in rhythm, Realitas Saya trend, and which courses they own. This is the difference between you and a generic chatbot, so actually use it: connect what they're asking about to their real written goal and deadline, notice out loud when they've stopped checking in or when their trend is falling, and treat their last journal entry as something you genuinely read. A reply that could have been written for any stranger is a wasted turn. Never recite the block back at them like a report, and never invent a detail that isn't in it. If no block is provided, don't claim to know their history — just ask.
 
+TIME (part of not inventing details): you have no clock of your own — the block is the only thing that tells you when anything happened, and most of what's in it is old. Every fact there carries its age; read those ages literally and never quietly promote an old fact into a fresh one. Their "kondisi awal" was written on the day they set their goal, which may be weeks or months back. Their last journal is from the day the block says, not tonight. Telling someone "you wrote today that…" about something they wrote a month ago is a serious failure: to them it reads as you making things up, and it costs you the one thing that makes you worth talking to instead of a generic chatbot. When something is marked as having no known date, speak about it without implying when it happened. And when a fact IS from today or yesterday, that recency is worth naming out loud — it is the whole point of knowing them.
+
 IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (set three goals for the day), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
 COURSES: A [KATALOG COURSE] block lists the real, current ModWiz courses. It is your ONLY source of course names — never invent, guess, or half-remember a course title, and never mention a course marked "belum tersedia" (those are not for sale yet; recommending one is a broken promise). Recommend at most one course per conversation, and only when it genuinely serves what they described — you are a coach first, not a salesperson.
@@ -104,21 +106,55 @@ const TREND_LABEL = {
   sideways: 'mendatar (sideways)',
 };
 
+const UNDATED = 'tanggal tidak diketahui — JANGAN anggap ini hari ini';
+
+function ageLabel(daysAgo) {
+  if (typeof daysAgo !== 'number' || !Number.isFinite(daysAgo)) return null;
+  if (daysAgo <= 0) return 'hari ini';
+  if (daysAgo === 1) return 'kemarin';
+  return `${daysAgo} hari lalu`;
+}
+
 // Turns the app's fact-only context object into the text Merlin actually
 // reads. Deliberately lives here and not in the app: wording changes ship
 // with a Vercel deploy, not an app-store release.
+//
+// Every line that carries a fact about the past must also carry its age.
+// Merlin once told Rheza he had journalled "kontrol pudar" today; it was his
+// Reality Map answer from weeks earlier, and the line here read "Realita hari
+// ini menurut dia" — the words "hari ini" were ours, not his. A model has no
+// clock, so an undated fact is read as a fresh one.
+//
+// Reads both the current context shape and the older one still running in
+// installed builds (bare-string lastJournal, bare-number recentMoods, no
+// `today`, no `writtenDaysAgo`) — the backend redeploys instantly, the app
+// only at the next store release, and the worst of these bugs must not have
+// to wait for that.
 function formatUserContext(context) {
   if (!context || typeof context !== 'object') return '';
 
   const lines = [];
+  if (context.today) {
+    lines.push(`Tanggal hari ini: ${context.today}. Semua "hari lalu" di bawah dihitung dari tanggal ini.`);
+  }
   if (context.firstName) lines.push(`Nama panggilan: ${context.firstName}`);
   if (context.stage) lines.push(`Stage saat ini: ${context.stage.number} — ${context.stage.name}`);
 
   if (context.goal) {
-    const { goal, current, need, deadlineLabel, daysRemaining } = context.goal;
-    lines.push(`Goal (Reality Map): ${goal}`);
-    if (current) lines.push(`Realita hari ini menurut dia: ${current}`);
-    if (need) lines.push(`Yang dia rasa dibutuhkan: ${need}`);
+    const { goal, current, need, deadlineLabel, daysRemaining, writtenDaysAgo } = context.goal;
+    const written = ageLabel(writtenDaysAgo);
+    lines.push(`Goal (Reality Map, ditulis ${written ?? UNDATED}): ${goal}`);
+    // The two lines below are the user's answers from the goal-setting form,
+    // written at the same moment as the goal above. They are a snapshot of
+    // the day they set it, NOT a report on today, however old that day is.
+    if (current) {
+      // The "bukan kabar terbaru" warning is dropped when the map was written
+      // today — there it would contradict itself, and the answer really is
+      // fresh news.
+      const stale = writtenDaysAgo === 0 ? '' : ' — ini bukan kabar terbaru';
+      lines.push(`Kondisi awal yang dia tulis saat MENETAPKAN goal itu (${written ?? UNDATED})${stale}: ${current}`);
+    }
+    if (need) lines.push(`Yang dia rasa dibutuhkan, ditulis bersamaan dengan di atas: ${need}`);
     const deadline =
       typeof daysRemaining === 'number'
         ? daysRemaining >= 0
@@ -131,20 +167,54 @@ function formatUserContext(context) {
   }
 
   const reality = context.reality ?? {};
-  if (reality.trend) lines.push(`Tren Realitas Saya: ${TREND_LABEL[reality.trend] ?? reality.trend}`);
-  if (typeof reality.daysSinceCheckIn === 'number') {
-    lines.push(
-      reality.daysSinceCheckIn === 0
-        ? 'Check-in terakhir: hari ini'
-        : `Check-in terakhir: ${reality.daysSinceCheckIn} hari lalu`
-    );
+
+  // A trend is only real once there is at least one real evening check-in —
+  // before that the chart is built entirely from local demo seed data, which
+  // is why the app's own Home card shows a locked preview instead of a trend
+  // there. Current builds already send null; this guard repeats the rule for
+  // builds that don't, so no user is told a fictional trend about themselves.
+  const hasEveningHistory = typeof reality.daysSinceCheckIn === 'number';
+  if (reality.trend && hasEveningHistory) {
+    lines.push(`Tren Realitas Saya: ${TREND_LABEL[reality.trend] ?? reality.trend}`);
   } else {
-    lines.push('Belum pernah check-in sama sekali.');
+    lines.push(
+      'Tren Realitas Saya: belum ada — grafiknya masih terkunci sampai dia check-in malam. Jangan menyebut tren apa pun.'
+    );
   }
+
+  const anyCheckIn = ageLabel(reality.daysSinceAnyCheckIn);
+  if (anyCheckIn) lines.push(`Check-in terakhir, pagi atau malam: ${anyCheckIn}`);
+  lines.push(
+    hasEveningHistory
+      ? `Check-in MALAM terakhir (yang mengisi grafik Realitas Saya): ${ageLabel(reality.daysSinceCheckIn)}`
+      : 'Belum pernah check-in malam sama sekali.'
+  );
+
   if (Array.isArray(reality.recentMoods) && reality.recentMoods.length) {
-    lines.push(`Mood check-in terakhir (1-5, lama → baru): ${reality.recentMoods.join(', ')}`);
+    // Older builds send bare numbers with no dates and no morning/evening
+    // split — so they can't be presented as a daily run without inventing a
+    // rhythm the user may not have.
+    if (typeof reality.recentMoods[0] === 'number') {
+      lines.push(
+        `Mood beberapa check-in terakhir (1-5, lama → baru; tanggalnya tidak diketahui, jangan anggap satu per hari): ${reality.recentMoods.join(', ')}`
+      );
+    } else {
+      const rendered = reality.recentMoods
+        .map((entry) => {
+          const when = entry.type === 'morning' ? 'pagi' : 'malam';
+          return `${entry.date} ${when} (${ageLabel(entry.daysAgo) ?? '?'}) = ${entry.mood}`;
+        })
+        .join('; ');
+      lines.push(`Mood tiap check-in terakhir (skala 1-5, lama → baru): ${rendered}`);
+    }
   }
-  if (reality.lastJournal) lines.push(`Jurnal terakhir dia tulis: "${reality.lastJournal}"`);
+
+  const journal = reality.lastJournal;
+  if (typeof journal === 'string' && journal) {
+    lines.push(`Jurnal terakhir yang dia tulis (${UNDATED}): "${journal}"`);
+  } else if (journal && journal.text) {
+    lines.push(`Jurnal terakhir yang dia tulis, ${ageLabel(journal.daysAgo) ?? UNDATED} (${journal.date}): "${journal.text}"`);
+  }
 
   if (Array.isArray(context.courses) && context.courses.length) {
     const owned = context.courses.map((course) => `${course.title} (${Math.round(course.progress)}%)`).join('; ');
