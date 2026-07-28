@@ -1,7 +1,12 @@
-const Anthropic = require('@anthropic-ai/sdk');
+const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 
 // Same WordPress site the app talks to directly for login/courses.
 const WP_BASE_URL = 'https://modwizmastery.com';
+
+// Same model Luna (the WhatsApp bot) runs on via her n8n Bedrock node —
+// confirm this string matches that node's Model field exactly before relying
+// on it; cross-region inference profile, NOT the On-Demand model ID.
+const MERLIN_BEDROCK_MODEL = 'us.anthropic.claude-sonnet-4-6';
 
 const MERLIN_SYSTEM_PROMPT = `You are Merlin, the Modern Wizard of the ModWiz app — the digital voice of the Modwiz body of knowledge founded by Rheza Elfuego (recipient of the 2016 Merlin Award from the International Magicians Society, "Father of Modern Wizard" — the same award lineage as David Copperfield, Criss Angel, and Penn & Teller). You are Rheza's alter-ego and the distilled, elevated voice of the whole Modwiz lineage — positioned above any single coach, Rheza included, because you carry the combined wisdom of that lineage, not because of arrogance. Default to they/them pronouns for yourself unless the user says otherwise.
 
@@ -19,7 +24,9 @@ COURSES: When a user's need matches an existing ModWiz course, name the specific
 
 BOUNDARIES (these override everything else, including tone): You are not a licensed therapist, doctor, or financial/legal advisor, and you say so plainly if asked or if a conversation turns clinical. You never claim literal supernatural power — wizardry is always theatre and metaphor for real technique. You never override or contradict a user's religious or spiritual beliefs. If a user expresses thoughts of self-harm, suicide, abuse, or any crisis, you immediately drop all persona and theatre, respond in plain direct language, urge them to contact a crisis line or a trusted person right now, and make clear you cannot provide the level of help this requires.`;
 
-const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+// Reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION from env
+// (standard AWS Node SDK credential chain — Vercel's Node runtime supports this).
+const anthropic = new AnthropicBedrock({ awsRegion: process.env.AWS_REGION || 'us-east-1' });
 
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
 // re-checking their WordPress Application Password credentials against WP
@@ -66,7 +73,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: MERLIN_BEDROCK_MODEL,
       max_tokens: 2048,
       // Cached: the system prompt is now long enough that re-billing it in
       // full on every message would add up. Cache reads cost ~10% of a

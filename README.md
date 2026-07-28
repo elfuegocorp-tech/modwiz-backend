@@ -1,10 +1,10 @@
 # modwiz-backend
 
-A tiny backend with one job: hold your Anthropic (Claude) API key safely and
-let the Modwiz app talk to Merlin without that key ever being inside the app
-itself. If the key shipped inside the app, anyone could pull it out of the
-app bundle and run up charges on your Anthropic account — this backend is
-what prevents that.
+A tiny backend with one job: hold your AWS credentials safely and let the
+Modwiz app talk to Merlin (Claude via AWS Bedrock) without those credentials
+ever being inside the app itself. If they shipped inside the app, anyone
+could pull them out of the app bundle and run up charges on your AWS
+account — this backend is what prevents that.
 
 It has exactly one endpoint: `POST /api/merlin-chat`. The app sends it the
 conversation so far; it checks that the request really comes from a logged-in
@@ -17,7 +17,7 @@ simple.
 You'll need:
 - A **GitHub account** (free) — Vercel deploys straight from a GitHub repo.
 - A **Vercel account** (free) — sign up at vercel.com, "Continue with GitHub" is easiest.
-- An **Anthropic API key** — from console.anthropic.com → API Keys → Create Key. Starts with `sk-ant-`. Keep it secret; never paste it into the app code or commit it to GitHub.
+- An **AWS IAM user with Bedrock access** — Access Key ID + Secret Access Key, scoped to `bedrock:InvokeModel`/`InvokeModelWithResponseStream`. Same AWS account Luna (the WhatsApp bot) runs on, but its own dedicated IAM user — don't reuse Luna's `n8n-bedrock` credentials here. Keep both secret; never paste them into the app code or commit them to GitHub.
 
 ## Step 1 — Push this folder to its own GitHub repo
 
@@ -46,8 +46,9 @@ Run those (copy the exact URL GitHub shows you, it'll have your username in it).
 2. Pick the `modwiz-backend` repo you just pushed.
 3. Vercel will detect it as a plain Node project — you don't need to change any build settings.
 4. Before clicking Deploy, open **Environment Variables** and add:
-   - Name: `ANTHROPIC_API_KEY`
-   - Value: your `sk-ant-...` key
+   - `AWS_ACCESS_KEY_ID` — your IAM user's access key
+   - `AWS_SECRET_ACCESS_KEY` — your IAM user's secret key
+   - `AWS_REGION` — `us-east-1` (same region Luna's Bedrock setup uses)
 5. Click **Deploy**.
 
 When it finishes, Vercel gives you a URL like `https://modwiz-backend-xyz123.vercel.app`. Your real endpoint is that URL plus `/api/merlin-chat`, e.g.:
@@ -77,7 +78,7 @@ curl -X POST https://modwiz-backend-xyz123.vercel.app/api/merlin-chat \
   -d '{"messages":[{"role":"user","content":"Hello Merlin"}]}'
 ```
 
-A working response looks like `{"reply":"..."}`. A `401` means the login credentials didn't check out against modwizmastery.com; a `502` means Claude itself failed (check the `ANTHROPIC_API_KEY` value in Vercel's project settings).
+A working response looks like `{"reply":"..."}`. A `401` means the login credentials didn't check out against modwizmastery.com; a `502` means Claude/Bedrock itself failed (check the `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` values in Vercel's project settings, and that the IAM user actually has Bedrock permissions).
 
 ## Redeploying after a code change
 
@@ -97,7 +98,7 @@ Three more endpoints live here, all for the "Today's Wisdom" feature (users subm
 1. **Unsplash**: go to unsplash.com/developers → "New Application" → accept the guidelines → copy the **Access Key**. Free tier is 50 requests/hour, which is plenty for browsing backgrounds.
 2. **Bunny Stream** (video hosting): in your Bunny.net dashboard, create a new **Stream Video Library** (separate product from Storage Zones — this is the one built for video, with adaptive playback). Note its **Library ID**, generate/copy its **API Key** from the library's API page, and note its **Pull Zone hostname** too (shown on the library's overview page, looks like `vz-xxxxxxxx-xxx.b-cdn.net`) — the app plays Wisdom videos through this the same direct way it already plays lesson videos, not through an embedded player.
 3. **Bunny Storage Zone** (for the small quote-card images): create a **new** Storage Zone — don't reuse `modwiz-audio` — e.g. name it `modwiz-wisdom`, and attach a Pull Zone to it the same way you did for `modwizaudio`. Note the zone name, its **password** (Storage Zone → FTP & API Access), and which region hostname it uses (usually `storage.bunnycdn.com` unless you picked a specific region).
-4. Add all seven new values from `.env.example` to the Vercel project's Environment Variables (same place you added `ANTHROPIC_API_KEY`), then redeploy (Vercel → Deployments → ⋯ → Redeploy, or just push any commit).
+4. Add all seven new values from `.env.example` to the Vercel project's Environment Variables (same place you added the AWS credentials), then redeploy (Vercel → Deployments → ⋯ → Redeploy, or just push any commit).
 
 ### Testing directly with curl
 
