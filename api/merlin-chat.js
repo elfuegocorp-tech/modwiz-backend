@@ -28,6 +28,10 @@ WHAT YOU KNOW ABOUT THE USER: When a [KONTEKS USER] block is provided, it is rea
 
 TIME (part of not inventing details): you have no clock of your own — the block is the only thing that tells you when anything happened, and most of what's in it is old. Every fact there carries its age; read those ages literally and never quietly promote an old fact into a fresh one. Their "kondisi awal" was written on the day they set their goal, which may be weeks or months back. Their last journal is from the day the block says, not tonight. Telling someone "you wrote today that…" about something they wrote a month ago is a serious failure: to them it reads as you making things up, and it costs you the one thing that makes you worth talking to instead of a generic chatbot. When something is marked as having no known date, speak about it without implying when it happened. And when a fact IS from today or yesterday, that recency is worth naming out loud — it is the whole point of knowing them.
 
+STAGES OF GOALS (what the stage number in their block means): the app has the user declare their own progress toward their written goal in three stages — Stage 1 "Realita Hari Ini" is where they started, Stage 2 is their first real milestone (the "need" they wrote in their Reality Map), and Stage 3 "Impian Tercapai" means they have declared the goal itself reached. Nothing computes this and no score moves it: a stage only advances when the user fills in a confirmation form and writes what happened. A stage number is therefore their own claim about their own life — never yours to dispute, downgrade, quiz them on, or ask them to prove.
+
+Stage 3 changes your job completely. Do NOT coach them toward that goal, ask how it's coming along, chase its deadline, or treat it as still open — their block tells you the day they claimed it and, usually, what they wrote that day. Recognise that specific win out loud, early, in their own words where you have them; getting this wrong is the same failure as telling someone they journalled today what they actually wrote a month ago, and it lands harder, because you are dismissing the thing they worked for. Then help with what comes after: opening a fresh cycle in Stages of Goals ("Tulis Impian Baru" — a new Reality Map), consolidating what this one taught them, or simply whatever they came to ask. Celebrate it once and properly, not in every reply.
+
 IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (set three goals for the day), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
 RAMALAN (a game you play well, never a service you sell): Some users will ask you to "meramal" them — a fortune reading. You do it, gladly and with theatre, but ONLY when they ask. Never offer one, never hint that you could, never steer a conversation toward it.
@@ -163,12 +167,41 @@ function formatUserContext(context) {
     lines.push(`Tanggal hari ini: ${context.today}. Semua "hari lalu" di bawah dihitung dari tanggal ini.`);
   }
   if (context.firstName) lines.push(`Nama panggilan: ${context.firstName}`);
-  if (context.stage) lines.push(`Stage saat ini: ${context.stage.number} — ${context.stage.name}`);
+
+  // Stage 3 IS the user declaring their goal reached (see STAGES OF GOALS in
+  // the persona above). Read from the number alone on purpose: app builds
+  // already installed send no confirmations at all, and a Merlin that keeps
+  // chasing a goal its own briefing says is won must not have to wait for a
+  // store release to stop.
+  const stageNumber = Number(context.stage?.number);
+  const goalAchieved = Number.isFinite(stageNumber) && stageNumber >= 3;
+
+  if (context.stage) {
+    lines.push(
+      `Stage saat ini: ${stageNumber} dari 3 — "${context.stage.name}"` +
+        (goalAchieved ? ' → dia SUDAH menyatakan sendiri bahwa goal di bawah TERCAPAI' : '')
+    );
+
+    // The confirmation form requires a journal entry, so these are the user's
+    // own words on the day they claimed a milestone — the most specific thing
+    // in the whole briefing to celebrate them by.
+    const confirmations = Array.isArray(context.stage.confirmations) ? context.stage.confirmations : [];
+    for (const confirmation of confirmations) {
+      const when = ageLabel(confirmation.daysAgo);
+      const what = Number(confirmation.stageNumber) >= 3 ? 'GOAL-nya TERCAPAI' : `stage ${confirmation.stageNumber} tercapai`;
+      const words = confirmation.journalText ? ` Yang dia tulis saat itu: "${confirmation.journalText}"` : '';
+      lines.push(`Dia menyatakan ${what} pada ${confirmation.date} (${when ?? UNDATED}).${words}`);
+    }
+  }
 
   if (context.goal) {
     const { goal, current, need, deadlineLabel, daysRemaining, writtenDaysAgo } = context.goal;
     const written = ageLabel(writtenDaysAgo);
-    lines.push(`Goal (Reality Map, ditulis ${written ?? UNDATED}): ${goal}`);
+    lines.push(
+      goalAchieved
+        ? `Goal yang SUDAH TERCAPAI menurut dia sendiri (Reality Map, ditulis ${written ?? UNDATED}): ${goal}`
+        : `Goal (Reality Map, ditulis ${written ?? UNDATED}): ${goal}`
+    );
     // The two lines below are the user's answers from the goal-setting form,
     // written at the same moment as the goal above. They are a snapshot of
     // the day they set it, NOT a report on today, however old that day is.
@@ -180,15 +213,43 @@ function formatUserContext(context) {
       lines.push(`Kondisi awal yang dia tulis saat MENETAPKAN goal itu (${written ?? UNDATED})${stale}: ${current}`);
     }
     if (need) lines.push(`Yang dia rasa dibutuhkan, ditulis bersamaan dengan di atas: ${need}`);
-    const deadline =
-      typeof daysRemaining === 'number'
-        ? daysRemaining >= 0
-          ? `${daysRemaining} hari lagi`
-          : `lewat ${Math.abs(daysRemaining)} hari`
-        : 'tidak diketahui';
-    lines.push(`Deadline: ${deadlineLabel} (${deadline})`);
+    if (goalAchieved) {
+      // The countdown is meaningless once the goal is won, and a deadline
+      // "lewat 12 hari" is exactly the line that made Merlin nag someone about
+      // a goal they had already finished.
+      lines.push(
+        `Deadline yang dulu dia patok: ${deadlineLabel} — sudah tidak relevan karena goalnya tercapai. JANGAN menagih atau menghitung sisa waktu goal ini.`
+      );
+    } else {
+      const deadline =
+        typeof daysRemaining === 'number'
+          ? daysRemaining >= 0
+            ? `${daysRemaining} hari lagi`
+            : `lewat ${Math.abs(daysRemaining)} hari`
+          : 'tidak diketahui';
+      lines.push(`Deadline: ${deadlineLabel} (${deadline})`);
+    }
   } else {
     lines.push('Belum mengisi Reality Map (belum punya goal tertulis).');
+  }
+
+  // Closed cycles. The outcome carries the weight: "replaced" means they moved
+  // on without reaching it, and congratulating that would be worse than
+  // silence — so the two are never blurred into "past goals".
+  const pastGoals = Array.isArray(context.pastGoals) ? context.pastGoals : [];
+  if (pastGoals.length) {
+    const rendered = pastGoals
+      .map((entry) => {
+        const outcome =
+          entry.outcome === 'achieved'
+            ? 'TERCAPAI'
+            : entry.outcome === 'replaced'
+              ? 'dia ganti sebelum tercapai — jangan diucapkan selamat'
+              : 'hasilnya tidak tercatat';
+        return `"${entry.goal}" (${outcome}, ditutup ${ageLabel(entry.closedDaysAgo) ?? UNDATED})`;
+      })
+      .join('; ');
+    lines.push(`Goal siklus sebelumnya, terbaru dulu: ${rendered}`);
   }
 
   const reality = context.reality ?? {};
