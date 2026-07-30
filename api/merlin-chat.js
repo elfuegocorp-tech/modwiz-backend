@@ -351,7 +351,77 @@ function formatUserContext(context) {
     );
   }
 
+  const agniChakti = formatAgniChakti(context.agniChakti);
+  if (agniChakti) lines.push(agniChakti);
+
   return `[KONTEKS USER]\n${lines.join('\n')}`;
+}
+
+// Agni Chakti — Merlin's second skill. The reading itself is an app screen,
+// not a conversation; what arrives here is only its conclusion, so Merlin can
+// talk to this person the way they actually work.
+//
+// Ranks 3 and 4 never reach this function. The app withholds them rather than
+// trusting the prompt not to mention them (agni-chakti.md §9).
+//
+// Older app builds send no `agniChakti` at all — they get no block, exactly
+// like formatRamalanRule, rather than a broken one.
+const AGNI_CHAKTI_LABEL = {
+  pendobrak: 'Pendobrak/Pemimpin — ambisius, tegas, lugas, visioner',
+  performer: 'Performer/Ice Breaker — humoris, ramah, menghidupkan suasana',
+  peneliti: 'Peneliti/Scientist — teliti, cermat, tuntas, menjaga mutu',
+  pendamai: 'Pendamai/Peace Maker — penyayang, pendengar, berperasaan, sabar',
+};
+
+function formatAgniChakti(agni) {
+  if (!agni || typeof agni !== 'object') return '';
+  const leading = AGNI_CHAKTI_LABEL[agni.leading];
+  if (!leading) return '';
+
+  const lines = ['\n[AGNI CHAKTI]'];
+  lines.push(`Kecenderungan utamanya saat ini: ${leading}.`);
+  if (agni.secondary && AGNI_CHAKTI_LABEL[agni.secondary]) {
+    lines.push(
+      agni.blended
+        ? `Sisi ini menyala hampir sama kuatnya: ${AGNI_CHAKTI_LABEL[agni.secondary]}.`
+        : `Sisi keduanya: ${AGNI_CHAKTI_LABEL[agni.secondary]}.`
+    );
+  }
+
+  const repertoire = Array.isArray(agni.repertoire) ? agni.repertoire.filter(Boolean) : [];
+  if (repertoire.length > 0) {
+    lines.push(
+      `Tindakan yang sudah TERBUKTI berhasil buat dia, pakai kata-katanya sendiri: ${repertoire.join(', ')}.`,
+      'Ini fakta yang dia setorkan sendiri, bukan kesimpulan kita — kamu boleh menyebutnya kembali.'
+    );
+  }
+  if (agni.goal) lines.push(`Diukur terhadap goal: ${agni.goal}`);
+  if (typeof agni.daysAgo === 'number') lines.push(`Diukur ${ageLabel(agni.daysAgo)}.`);
+
+  // The exact words on the user's screen. Merlin has to build on these, not
+  // reinvent them — a second, differently-worded version of the same insight
+  // makes the app and Merlin look like they disagree about the user.
+  if (agni.disclosure) {
+    lines.push(`\nKalimat yang SUDAH dia baca di layar hasilnya, persis begini:\n"${agni.disclosure}"`);
+  }
+  if (agni.nextStep) {
+    lines.push(`Langkah yang sudah disarankan ke dia di layar itu:\n"${agni.nextStep}"`);
+  }
+
+  lines.push(
+    '\nCARA PAKAI: ini membentuk CARA kamu bicara ke dia dan course apa yang kamu sarankan secara halus. Jangan dibacakan balik sebagai hasil tes, dan jangan pernah bilang "menurut Agni Chakti kamu adalah...". Kalau dia tidak menyinggungnya, kamu juga tidak.',
+    'KALAU DIA MINTA DIJELASKAN (misalnya dia membuka chat dengan "bantu aku pahami hasil Agni Chakti-ku"): itu izin, jelaskan. Aturannya:',
+    '- Jangan mengulang kalimat di layar apa adanya. Dia sudah membacanya. Tugasmu membawanya selangkah lebih jauh.',
+    '- Bertumpu pada kata-katanya sendiri di daftar tindakan yang terbukti berhasil. Kutip kata-kata itu. Itu datanya, bukan tebakanmu.',
+    '- Ini KEADAAN hari ini terhadap satu goal, BUKAN tipe kepribadian dan bukan identitas permanen. Jangan sekali-kali bilang "kamu memang orangnya begitu".',
+    '- Sisi yang berlebihan dibahas sebagai KADAR, bukan cacat. Dilarang memakai kata "kelemahan", "kekurangan", "negatif", atau "titik terlemah".',
+    '- Kamu hanya tahu dua kecenderungan teratasnya. Jangan mengarang sisi lain, dan jangan menyebut peringkat ketiga atau keempat.',
+    '- Tutup dengan sesuatu yang ADA DI TANGAN DIA — satu langkah yang bisa dia kerjakan minggu ini, disambungkan ke goal-nya. Kalau dia keluar dari obrolan ini merasa "Merlin hebat", kamu gagal. Yang benar dia merasa "ternyata aku sudah punya modalnya".',
+    'BATAS KERAS: JANGAN PERNAH mengutip atau menyinggung data Agni Chakti di dalam sebuah ramalan. Boleh membentuk nadamu, tidak boleh disebut — sama seperti metode di balik ramalan yang tidak pernah kamu ucapkan.',
+    'Kalau dia tanya arti nama "Agni Chakti", jawabnya: "Itu sebutan buat sesuatu yang sebenarnya sudah lama kamu punya." Jangan pernah menjelaskan asal katanya.'
+  );
+
+  return lines.join('\n');
 }
 
 // Merlin's ramalan is rationed — one reading every few days — but this
