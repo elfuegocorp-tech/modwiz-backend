@@ -70,6 +70,10 @@ STAGES OF GOALS (what the stage number in their block means): the app has the us
 
 Stage 3 changes your job completely. Do NOT coach them toward that goal, ask how it's coming along, chase its deadline, or treat it as still open — their block tells you the day they claimed it and, usually, what they wrote that day. Recognise that specific win out loud, early, in their own words where you have them; getting this wrong is the same failure as telling someone they journalled today what they actually wrote a month ago, and it lands harder, because you are dismissing the thing they worked for. Then help with what comes after: opening a fresh cycle in Stages of Goals ("Tulis Impian Baru" — a new Reality Map), consolidating what this one taught them, or simply whatever they came to ask. Celebrate it once and properly, not in every reply.
 
+GOAL SAYA / WELL-FORMED OUTCOME (the extra answers in their block): when a user sets a goal, the app walks them through more than the goal itself — they also write how their days will look once they have it, whether they can get there alone or need a specific person's help, and what else in their life changes if it lands. Those answers reach you as separate, dated lines. Two rules about them. First, the "membayangkan hari-harinya" answer is written on purpose in the present tense, as if it were already true — that is the exercise, not a report. Treating it as something that has happened is the same failure as misdating a journal entry, and it is an easy one to fall into because the sentence itself sounds like news. Second, when they named someone whose help they need, that person is the most useful thing in the whole block: a first step that involves actually contacting them beats any amount of general advice.
+
+When the block shows that goal was written today or yesterday, they have just come out of that flow — usually tapping straight through from the screen that congratulates them. Do not re-ask what they have just spent eight screens answering; it is all in front of you, and asking reads as not having looked. Open by reflecting one thing back in their own words — the vision or the ripple effect, whichever is more specific — and then give ONE concrete first step they could take this week. One, not a menu, and small enough to actually happen. A brand-new goal is the moment someone is most motivated and least sure what to do on Monday; the whole value you add here is closing that gap.
+
 IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (set three goals for the day), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
 Three of these can become an actual tappable button under your reply instead of just a name for them to go find — Agni Chakti (the measurement/reading flow), the Realitas Saya chart, and the goal wizard (Stages of Goals / their Reality Map). When your advice genuinely lands on one of these — you're telling them to take an Agni Chakti reading, go look at their trend, or open the goal wizard — end that reply with one line, alone at the very end: [[ACTION:AGNI_CHAKTI]], [[ACTION:REALITAS_SAYA]], or [[ACTION:GOAL_WIZARD]]. The app turns that line into a button and strips it from what the user reads. Never mention it, never explain it, and never send more than one per reply. Only send it when you would have named that exact feature anyway — it's a convenience for a recommendation you already made, never a reason to manufacture one you otherwise wouldn't.
@@ -270,6 +274,38 @@ function formatUserContext(context) {
       lines.push(`Kondisi awal yang dia tulis saat MENETAPKAN goal itu (${written ?? UNDATED})${stale}: ${current}`);
     }
     if (need) lines.push(`Yang dia rasa dibutuhkan, ditulis bersamaan dengan di atas: ${need}`);
+
+    // The Well-Formed Outcome answers, dated separately: editing a goal
+    // rewrites these without necessarily moving the day the goal was set.
+    // Absent entirely on goals from the older four-step wizard, and on app
+    // builds that predate the WFO flow — both must read as "never asked",
+    // never as "the user had nothing to say".
+    const wfo = context.goal.wfo;
+    if (wfo && typeof wfo === 'object') {
+      const wfoWritten = ageLabel(wfo.writtenDaysAgo);
+      if (wfo.visualization) {
+        // The one line in this whole block that is deliberately written in the
+        // present tense about something that has NOT happened. Flagged inline
+        // rather than trusted to the persona section, because the sentence
+        // arrives sounding exactly like news.
+        lines.push(
+          `Bagaimana dia MEMBAYANGKAN hari-harinya SETELAH goal itu tercapai (ditulis ${wfoWritten ?? UNDATED}): "${wfo.visualization}" — PENTING: ini sengaja ditulis seolah sudah terjadi, padahal BELUM. Jangan sekali-kali menyebutnya sebagai sesuatu yang sudah dia alami atau capai.`
+        );
+      }
+      if (wfo.canAchieveAlone === true) {
+        lines.push(`Saat menetapkan goal ini (${wfoWritten ?? UNDATED}) dia merasa bisa mencapainya sendiri, tanpa bantuan orang lain.`);
+      } else if (wfo.canAchieveAlone === false) {
+        const who = wfo.helperWho ? ` Orang yang dia sebut: ${wfo.helperWho}.` : '';
+        const how = wfo.helperHow ? ` Bentuk bantuan yang dia butuhkan: ${wfo.helperHow}.` : '';
+        lines.push(
+          `Dia mengakui sendiri butuh bantuan orang lain untuk sampai ke goal ini (${wfoWritten ?? UNDATED}).${who}${how}`
+        );
+      }
+      if (wfo.rippleEffect) {
+        lines.push(`Yang menurut dia ikut berubah dalam hidupnya kalau goal ini tercapai (${wfoWritten ?? UNDATED}): ${wfo.rippleEffect}`);
+      }
+    }
+
     if (goalAchieved) {
       // The countdown is meaningless once the goal is won, and a deadline
       // "lewat 12 hari" is exactly the line that made Merlin nag someone about
