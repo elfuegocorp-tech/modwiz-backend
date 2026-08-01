@@ -415,6 +415,43 @@ function formatUserContext(context) {
     lines.push(`Jurnal terakhir yang dia tulis, ${ageLabel(journal.daysAgo) ?? UNDATED} (${journal.date}): "${journal.text}"`);
   }
 
+  // "Fokusmu Minggu Ini" — ke mana energinya pergi, dikelompokkan per arah.
+  // Vonisnya ikut dikirim, bukan dihitung ulang di sini, supaya Merlin tidak
+  // pernah bilang hal yang berbeda dari kartu yang sedang dilihat user.
+  // Absen di build lama, dan null kalau memang belum ada pilihan sama sekali —
+  // dua-duanya bukan "seimbang".
+  const energy = context.focus;
+  if (energy && Array.isArray(energy.directions) && energy.directions.length) {
+    const split = energy.directions.map((d) => `${d.label} ${d.percent}%`).join(', ');
+    const verdict = energy.balanced
+      ? 'terbagi rata, tidak ada yang menonjol'
+      : energy.dominant
+        ? `paling banyak ke ${energy.dominant.label} (${energy.dominant.percent}%)`
+        : null;
+    lines.push(
+      `Fokusmu Minggu Ini — arah energinya (${energy.windowDays} hari terakhir, ` +
+        `${energy.daysCounted} hari tercatat, ${energy.totalPicks} pilihan): ${split}` +
+        (verdict ? ` — ${verdict}` : '')
+    );
+
+    // Sepuluh pilihan itu kira-kira dua hari terisi penuh. Di bawah itu,
+    // "60% Dunia Sekitar" bisa berarti dia cuma sempat check-in sekali.
+    if (energy.totalPicks < 10) {
+      lines.push(
+        'CATATAN: pilihannya masih sedikit, jadi persentase di atas belum bisa dipakai ' +
+          'menyimpulkan pola. Boleh disinggung, jangan dijadikan dasar penilaian.'
+      );
+    }
+
+    lines.push(
+      'Angka fokus itu ARAH energi, bukan nilai baik-buruk. "Dunia Sekitar 60%" ' +
+        'tidak otomatis salah, dan "seimbang" tidak otomatis lebih sehat — apakah ' +
+        'itu masalah sepenuhnya tergantung goal dia, yang sudah kamu punya di atas. ' +
+        'Goal bisnis dan goal pemulihan butuh jawaban yang berlawanan di sini. ' +
+        'Jangan menyuruh dia "lebih seimbang" seolah itu selalu perbaikan.'
+    );
+  }
+
   if (Array.isArray(context.courses) && context.courses.length) {
     const owned = context.courses.map((course) => `${course.title} (${Math.round(course.progress)}%)`).join('; ');
     lines.push(`Course yang SUDAH dia miliki: ${owned}`);
