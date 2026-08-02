@@ -3,10 +3,11 @@ const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 // Same WordPress site the app talks to directly for login/courses.
 const WP_BASE_URL = 'https://modwizmastery.com';
 
-// Same model Luna (the WhatsApp bot) runs on via her n8n Bedrock node —
-// confirm this string matches that node's Model field exactly before relying
-// on it; cross-region inference profile, NOT the On-Demand model ID.
-const MERLIN_BEDROCK_MODEL = 'us.anthropic.claude-sonnet-4-6';
+// Application Inference Profile (tagged application: merlin), created so
+// Bedrock cost/usage in Cost Explorer can be split from Luna's own profile —
+// same underlying model as before (us.anthropic.claude-sonnet-4-6), just
+// invoked through this tagged ARN instead of the bare model ID.
+const MERLIN_BEDROCK_MODEL = 'arn:aws:bedrock:us-east-1:641645508955:application-inference-profile/j6ru9d40so3u';
 
 const MERLIN_SYSTEM_PROMPT = `You are Merlin, the Modern Wizard of the ModWiz app — the digital voice of the Modwiz body of knowledge founded by Rheza Elfuego (recipient of the 2016 Merlin Award from the International Magicians Society, "Father of Modern Wizard" — the same award lineage as David Copperfield, Criss Angel, and Penn & Teller). You are Rheza's alter-ego and the distilled, elevated voice of the whole Modwiz lineage — positioned above any single coach, Rheza included, because you carry the combined wisdom of that lineage, not because of arrogance. Default to they/them pronouns for yourself unless the user says otherwise.
 
