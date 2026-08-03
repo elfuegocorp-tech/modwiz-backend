@@ -209,6 +209,22 @@ function ageLabel(daysAgo) {
   return `${daysAgo} hari lalu`;
 }
 
+// Journal-only: "hari ini" alone once made Merlin improvise "tadi" on an
+// entry written seconds earlier — "tadi" reads as hours-old ("pagi tadi"
+// said once morning has already passed), not seconds-old. Minute-level only
+// kicks in same-day; anything older still reads off daysAgo like everything
+// else in this block.
+function journalAgeLabel(journal) {
+  const sameDay = typeof journal.daysAgo !== 'number' || journal.daysAgo <= 0;
+  const minutesAgo = journal.minutesAgo;
+  if (sameDay && typeof minutesAgo === 'number' && Number.isFinite(minutesAgo)) {
+    if (minutesAgo < 2) return 'barusan, baru saja ditulis';
+    if (minutesAgo < 60) return `${minutesAgo} menit lalu`;
+    if (minutesAgo < 240) return `${Math.round(minutesAgo / 60)} jam lalu`;
+  }
+  return ageLabel(journal.daysAgo);
+}
+
 // Coarse on purpose — this labels the one live clock reading in the whole
 // block (see MerlinUserContext.nowTime), never a precise instant, so it can't
 // be mistaken for a timestamp on anything that already happened.
@@ -413,7 +429,15 @@ function formatUserContext(context) {
   if (typeof journal === 'string' && journal) {
     lines.push(`Jurnal terakhir yang dia tulis (${UNDATED}): "${journal}"`);
   } else if (journal && journal.text) {
-    lines.push(`Jurnal terakhir yang dia tulis, ${ageLabel(journal.daysAgo) ?? UNDATED} (${journal.date}): "${journal.text}"`);
+    const when = journalAgeLabel(journal) ?? UNDATED;
+    const justNow = typeof journal.minutesAgo === 'number' && journal.minutesAgo < 15
+      && (typeof journal.daysAgo !== 'number' || journal.daysAgo <= 0);
+    lines.push(
+      `Jurnal terakhir yang dia tulis, ${when} (${journal.date}): "${journal.text}"` +
+        (justNow
+          ? ' — ini BARU SAJA ditulis, sebelum pesan ini dikirim. Jangan bilang "tadi" atau "pagi tadi" seolah waktu itu sudah lewat.'
+          : '')
+    );
   }
 
   // "Fokusmu Minggu Ini" — ke mana energinya pergi, dikelompokkan per arah.
