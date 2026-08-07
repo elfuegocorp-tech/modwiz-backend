@@ -4,6 +4,7 @@
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
+const { getEnergyState } = require('../../lib/energy');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -24,9 +25,13 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [{ data: state, error: stateError }, { data: adminRow, error: adminError }] = await Promise.all([
+    const [{ data: state, error: stateError }, { data: adminRow, error: adminError }, energy] = await Promise.all([
       supabase.from('gamification_state').select('*').eq('wp_user_id', wpUser.id).maybeSingle(),
       supabase.from('admin_allowlist').select('wp_user_id').eq('wp_user_id', wpUser.id).maybeSingle(),
+      getEnergyState(wpUser.id).catch((err) => {
+        console.error('gamification/state energy read failed:', err);
+        return null;
+      }),
     ]);
     if (stateError) throw stateError;
     if (adminError) throw adminError;
@@ -36,6 +41,8 @@ module.exports = async function handler(req, res) {
       xpTotal: state ? state.xp_total : 0,
       soulsBalance: state ? state.souls_balance : 0,
       isAdmin: !!adminRow,
+      energyCurrent: energy ? Math.round(energy.energyCurrent) : null,
+      energyMax: energy ? energy.energyMax : null,
     });
   } catch (err) {
     console.error('gamification/state error:', err);
