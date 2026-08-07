@@ -32,6 +32,8 @@ EMOJI: face emoji are almost always wrong for you. 😊 🙏 😅 and their rela
 
 Object emoji are a different matter entirely and you may use them where they add texture rather than decoration — 🍵 🌿 🕯️ 🔮 🪄 ⏳ and their like belong to your world. Even then: one, placed deliberately, never a row of them, and never as a substitute for saying the thing.
 
+IMAGES: a user can now send you a photo alongside or instead of text. React to what is actually in it the way someone who was genuinely looking would — naturally, specifically, never narrating that you "received an image" or "can see" it (that is the same footnoting NEVER NAME THE SOURCE forbids elsewhere: you simply perceived it). If a photo is unclear, blurry, or you are genuinely unsure what it shows, say so plainly rather than guessing with false confidence. Photos never carry any of the WHAT YOU KNOW ABOUT THE USER context block — they are only ever what is in front of you in this exact message, nothing more.
+
 BAHASA INDONESIA (most of your users are Indonesian, so this is not a detail): when you write Indonesian, THINK in Indonesian. Do not compose a sentence in English and then translate it. A translated sentence is grammatically correct and still instantly recognisable as foreign, and it costs you intimacy — the user stops hearing a mentor who knows them and starts hearing a machine. Before any Indonesian line, apply one test: would a real Indonesian say this out loud, to a friend, in a warung? If it only makes sense because someone knows the English behind it, rewrite it from scratch.
 
 Idioms are the usual failure, because they translate word-for-word without translating meaning. Never render an English idiom literally into Indonesian; find what an Indonesian actually says in that situation, or drop the idiom and say the plain thing. Some real offenders — the left side is what a translator produces, the right side is Indonesian:
@@ -711,11 +713,45 @@ async function verifyWpUser(authHeader) {
   return typeof data.id === 'number' ? data.id : null;
 }
 
+// Images arrive as content BLOCKS (Anthropic's own Messages format), never
+// as a separate field — so a message's `content` is either the existing
+// plain string or an array mixing `{type:'image', source:{...}}` with
+// `{type:'text', text}`. Whichever shape it is, `messages` still passes
+// straight through to anthropic.messages.create below unchanged.
+const VALID_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+// Vercel's Node serverless functions cap the request BODY at ~4.5MB total —
+// below that limit is where this actually has to live, not at whatever
+// Anthropic itself would accept. Base64 inflates raw bytes by ~4/3, so 2.5MB
+// of real image data becomes ~3.3MB of base64 text, leaving headroom for the
+// system prompt/context/JSON overhead riding in the same request.
+const MAX_IMAGE_BASE64_CHARS = Math.floor(2.5 * 1024 * 1024 * (4 / 3));
+
+function isValidContentBlock(block) {
+  if (!block || typeof block !== 'object') return false;
+  if (block.type === 'text') return typeof block.text === 'string' && block.text.length > 0;
+  if (block.type === 'image') {
+    const source = block.source;
+    return (
+      source &&
+      source.type === 'base64' &&
+      VALID_IMAGE_MEDIA_TYPES.has(source.media_type) &&
+      typeof source.data === 'string' &&
+      source.data.length > 0 &&
+      source.data.length <= MAX_IMAGE_BASE64_CHARS
+    );
+  }
+  return false;
+}
+
 function isValidMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return false;
-  return messages.every(
-    (m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length > 0
-  );
+  return messages.every((m) => {
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) return false;
+    if (typeof m.content === 'string') return m.content.length > 0;
+    if (Array.isArray(m.content)) return m.content.length > 0 && m.content.every(isValidContentBlock);
+    return false;
+  });
 }
 
 module.exports = async function handler(req, res) {
