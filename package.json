@@ -4,6 +4,7 @@
   "private": true,
   "description": "Small serverless backend for the Modwiz app. Currently just one endpoint: Merlin chat.",
   "dependencies": {
-    "@anthropic-ai/bedrock-sdk": "^0.32.0"
+    "@anthropic-ai/bedrock-sdk": "^0.32.0",
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
