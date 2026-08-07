@@ -46,6 +46,8 @@ module.exports = async function handler(req, res) {
     });
   } catch (err) {
     console.error('gamification/state error:', err);
-    res.status(500).json({ error: 'Could not load your progress right now.' });
+    // TEMP: surfacing the real error to the client while we track down a
+    // live 500 — revert to a generic message once diagnosed.
+    res.status(500).json({ error: `Could not load your progress right now. (${err.message || err})` });
   }
 };
