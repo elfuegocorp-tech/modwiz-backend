@@ -29,12 +29,18 @@ module.exports = async function handler(req, res) {
       supabase.from('gamification_state').select('*').eq('wp_user_id', wpUser.id).maybeSingle(),
       supabase.from('admin_allowlist').select('wp_user_id').eq('wp_user_id', wpUser.id).maybeSingle(),
       getEnergyState(wpUser.id).catch((err) => {
-        console.error('gamification/state energy read failed:', err);
+        console.error('gamification/state energy read failed:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
         return null;
       }),
     ]);
-    if (stateError) throw stateError;
-    if (adminError) throw adminError;
+    if (stateError) {
+      console.error('gamification/state stateError:', JSON.stringify(stateError));
+      throw stateError;
+    }
+    if (adminError) {
+      console.error('gamification/state adminError:', JSON.stringify(adminError));
+      throw adminError;
+    }
 
     res.status(200).json({
       streakCount: state ? state.streak_count : 0,
@@ -48,6 +54,7 @@ module.exports = async function handler(req, res) {
     console.error('gamification/state error:', err);
     // TEMP: surfacing the real error to the client while we track down a
     // live 500 — revert to a generic message once diagnosed.
-    res.status(500).json({ error: `Could not load your progress right now. (${err.message || err})` });
+    const detail = [err.message, err.code, err.details, err.hint].filter(Boolean).join(' | ') || String(err);
+    res.status(500).json({ error: `Could not load your progress right now. (${detail})` });
   }
 };
