@@ -4,7 +4,6 @@
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
-const { getEnergyState } = require('../../lib/energy');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -25,36 +24,26 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [{ data: state, error: stateError }, { data: adminRow, error: adminError }, energy] = await Promise.all([
+    const [{ data: state, error: stateError }, { data: adminRow, error: adminError }] = await Promise.all([
       supabase.from('gamification_state').select('*').eq('wp_user_id', wpUser.id).maybeSingle(),
       supabase.from('admin_allowlist').select('wp_user_id').eq('wp_user_id', wpUser.id).maybeSingle(),
-      getEnergyState(wpUser.id).catch((err) => {
-        console.error('gamification/state energy read failed:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
-        return null;
-      }),
     ]);
-    if (stateError) {
-      console.error('gamification/state stateError:', JSON.stringify(stateError));
-      throw stateError;
-    }
-    if (adminError) {
-      console.error('gamification/state adminError:', JSON.stringify(adminError));
-      throw adminError;
-    }
+    if (stateError) throw stateError;
+    if (adminError) throw adminError;
 
     res.status(200).json({
       streakCount: state ? state.streak_count : 0,
       xpTotal: state ? state.xp_total : 0,
       soulsBalance: state ? state.souls_balance : 0,
       isAdmin: !!adminRow,
-      energyCurrent: energy ? Math.round(energy.energyCurrent) : null,
-      energyMax: energy ? energy.energyMax : null,
+      // Energy meter temporarily disabled — energy_state is unreachable
+      // through Supabase's Data API (PGRST125, unresolved as of 2026-08-08,
+      // see memory) while every other table works fine. Null until fixed.
+      energyCurrent: null,
+      energyMax: null,
     });
   } catch (err) {
     console.error('gamification/state error:', err);
-    // TEMP: surfacing the real error to the client while we track down a
-    // live 500 — revert to a generic message once diagnosed.
-    const detail = [err.message, err.code, err.details, err.hint].filter(Boolean).join(' | ') || String(err);
-    res.status(500).json({ error: `Could not load your progress right now. (${detail})` });
+    res.status(500).json({ error: 'Could not load your progress right now.' });
   }
 };
