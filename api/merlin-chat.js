@@ -785,7 +785,10 @@ module.exports = async function handler(req, res) {
     return { energyCurrent: 1, energyMax: 100 }; // fail open — don't block chat on our own bug
   });
   console.log('Merlin energy check:', wpUserId, energyBefore.energyCurrent, '/', energyBefore.energyMax);
-  if (energyBefore.energyCurrent <= 0) {
+  // < 1, not <= 0 — Energy recharges continuously, so it's almost never
+  // exactly zero; 1 is also the minimum any message can ever cost
+  // (tokensToEnergy floors at 1), so anything below that can't be afforded.
+  if (energyBefore.energyCurrent < 1) {
     res.status(429).json({
       error: 'Merlin sedang beristirahat untuk memulihkan Energy. Coba lagi nanti.',
       energyCurrent: 0,
