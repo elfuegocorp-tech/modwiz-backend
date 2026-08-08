@@ -1,5 +1,23 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
-const { getEnergyState, consumeEnergy, tokensToEnergy } = require('../lib/energy');
+const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset } = require('../lib/energy');
+
+// "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
+// user doesn't see a countdown that reads as already over).
+function formatWaitTime(ms) {
+  const totalMinutes = Math.max(1, Math.ceil(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes} menit`;
+  if (minutes === 0) return `${hours} jam`;
+  return `${hours} jam ${minutes} menit`;
+}
+
+// In Merlin's own voice, not a system error string — see VOICE in the
+// persona prompt below. Names the wait plainly and, in the same breath,
+// the way around it (buying Extra Energy), rather than a bare block.
+function buildEnergyBlockedMessage(waitMs) {
+  return `Realita tidak dibangun dalam satu percakapan. Kembali dalam ${formatWaitTime(waitMs)} — atau bawa Energy tambahan sekarang.`;
+}
 
 // Same WordPress site the app talks to directly for login/courses.
 const WP_BASE_URL = 'https://modwizmastery.com';
@@ -779,20 +797,34 @@ module.exports = async function handler(req, res) {
   }
 
   // Checked before the (costly) Bedrock call, not after — an empty tank
-  // should never actually reach the model.
+  // should never actually reach the model. Fixed-window quota (not
+  // continuous drip) — energyBefore.energyCurrent is only what's left in
+  // the current 16h window; it snaps back to full at windowStartedAt+16h,
+  // not gradually. Extra Energy (Souls-bought) only covers the gap when the
+  // user has explicitly turned it on — see setExtraEnergyEnabled.
   const energyBefore = await getEnergyState(wpUserId).catch((err) => {
     console.error('Merlin energy read failed, failing open:', err);
-    return { energyCurrent: 1, energyMax: 100 }; // fail open — don't block chat on our own bug
+    return { energyCurrent: 1, energyMax: 100, extraEnergy: 0, extraEnergyEnabled: false, windowStartedAt: new Date().toISOString() }; // fail open — don't block chat on our own bug
   });
-  console.log('Merlin energy check:', wpUserId, energyBefore.energyCurrent, '/', energyBefore.energyMax);
-  // < 1, not <= 0 — Energy recharges continuously, so it's almost never
-  // exactly zero; 1 is also the minimum any message can ever cost
-  // (tokensToEnergy floors at 1), so anything below that can't be afforded.
-  if (energyBefore.energyCurrent < 1) {
+  console.log(
+    'Merlin energy check:',
+    wpUserId,
+    energyBefore.energyCurrent,
+    '/',
+    energyBefore.energyMax,
+    'extra:',
+    energyBefore.extraEnergy,
+    energyBefore.extraEnergyEnabled ? '(on)' : '(off)'
+  );
+  const canAfford = energyBefore.energyCurrent >= 1 || (energyBefore.extraEnergyEnabled && energyBefore.extraEnergy >= 1);
+  if (!canAfford) {
+    const waitMs = msUntilReset(energyBefore.windowStartedAt);
     res.status(429).json({
-      error: 'Merlin sedang beristirahat untuk memulihkan Energy. Coba lagi nanti.',
+      error: buildEnergyBlockedMessage(waitMs),
       energyCurrent: 0,
       energyMax: energyBefore.energyMax,
+      extraEnergy: energyBefore.extraEnergy,
+      resetInMs: waitMs,
     });
     return;
   }
@@ -854,6 +886,7 @@ module.exports = async function handler(req, res) {
       action,
       energyCurrent: energyAfter ? energyAfter.energyCurrent : undefined,
       energyMax: energyAfter ? energyAfter.energyMax : undefined,
+      extraEnergy: energyAfter ? energyAfter.extraEnergy : undefined,
     });
   } catch (err) {
     console.error('Merlin/Anthropic error:', err);

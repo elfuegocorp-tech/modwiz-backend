@@ -4,7 +4,7 @@
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
-const { getEnergyState } = require('../../lib/energy');
+const { getEnergyState, msUntilReset } = require('../../lib/energy');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -43,6 +43,9 @@ module.exports = async function handler(req, res) {
       isAdmin: !!adminRow,
       energyCurrent: energy ? Math.round(energy.energyCurrent) : null,
       energyMax: energy ? energy.energyMax : null,
+      extraEnergy: energy ? energy.extraEnergy : null,
+      extraEnergyEnabled: energy ? energy.extraEnergyEnabled : false,
+      energyResetInMs: energy ? msUntilReset(energy.windowStartedAt) : null,
     });
   } catch (err) {
     console.error('gamification/state error:', err);
