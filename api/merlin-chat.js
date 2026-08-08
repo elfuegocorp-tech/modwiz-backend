@@ -781,9 +781,10 @@ module.exports = async function handler(req, res) {
   // Checked before the (costly) Bedrock call, not after — an empty tank
   // should never actually reach the model.
   const energyBefore = await getEnergyState(wpUserId).catch((err) => {
-    console.error('Merlin energy read failed:', err);
+    console.error('Merlin energy read failed, failing open:', err);
     return { energyCurrent: 1, energyMax: 100 }; // fail open — don't block chat on our own bug
   });
+  console.log('Merlin energy check:', wpUserId, energyBefore.energyCurrent, '/', energyBefore.energyMax);
   if (energyBefore.energyCurrent <= 0) {
     res.status(429).json({
       error: 'Merlin sedang beristirahat untuk memulihkan Energy. Coba lagi nanti.',
@@ -826,6 +827,15 @@ module.exports = async function handler(req, res) {
     const usage = response.usage || {};
     const totalTokens =
       (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.output_tokens || 0);
+    console.log(
+      'Merlin token usage:',
+      wpUserId,
+      JSON.stringify(usage),
+      'totalTokens:',
+      totalTokens,
+      'energyCost:',
+      tokensToEnergy(totalTokens)
+    );
     const energyAfter = await consumeEnergy(wpUserId, tokensToEnergy(totalTokens)).catch((err) => {
       console.error('Merlin energy deduct failed:', err);
       return null;
