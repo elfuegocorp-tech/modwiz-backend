@@ -811,9 +811,12 @@ module.exports = async function handler(req, res) {
       // prefix, so the long static persona stays cached across messages
       // while the per-user briefing after it is free to change every turn —
       // putting the briefing inside the cached block would bust the cache
-      // for every user on every message.
+      // for every user on every message. ttl: '1h' (not the 5m default) —
+      // real conversational pacing (reading a reply, typing back) routinely
+      // exceeds 5 minutes, which was silently forcing a full ~10k-token
+      // system-prompt cache_creation on nearly every message.
       system: [
-        { type: 'text', text: MERLIN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: MERLIN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } },
         ...(briefing ? [{ type: 'text', text: briefing }] : []),
       ],
       messages,
