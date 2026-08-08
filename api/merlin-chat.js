@@ -1,4 +1,5 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
+const { getEnergyState, consumeEnergy, tokensToEnergy } = require('../lib/energy');
 
 // Same WordPress site the app talks to directly for login/courses.
 const WP_BASE_URL = 'https://modwizmastery.com';
@@ -777,6 +778,21 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Checked before the (costly) Bedrock call, not after — an empty tank
+  // should never actually reach the model.
+  const energyBefore = await getEnergyState(wpUserId).catch((err) => {
+    console.error('Merlin energy read failed:', err);
+    return { energyCurrent: 1, energyMax: 100 }; // fail open — don't block chat on our own bug
+  });
+  if (energyBefore.energyCurrent <= 0) {
+    res.status(429).json({
+      error: 'Merlin sedang beristirahat untuk memulihkan Energy. Coba lagi nanti.',
+      energyCurrent: 0,
+      energyMax: energyBefore.energyMax,
+    });
+    return;
+  }
+
   // Both are enrichment, not requirements: a WP hiccup or a first-run user
   // with no data should still get to talk to Merlin, just a less aware one.
   // The system prompt already handles a missing block gracefully.
@@ -805,7 +821,24 @@ module.exports = async function handler(req, res) {
     const textBlock = response.content.find((block) => block.type === 'text');
     const { reply, ramalanGiven, apprenticeActive, action } = extractMarkers(textBlock ? textBlock.text : '');
 
-    res.status(200).json({ reply, ramalanGiven, apprenticeActive, action });
+    // Cost is real regardless of cache hits — charge Energy on total tokens
+    // (input + output), same formula as the Notion Energy design doc.
+    const usage = response.usage || {};
+    const totalTokens =
+      (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.output_tokens || 0);
+    const energyAfter = await consumeEnergy(wpUserId, tokensToEnergy(totalTokens)).catch((err) => {
+      console.error('Merlin energy deduct failed:', err);
+      return null;
+    });
+
+    res.status(200).json({
+      reply,
+      ramalanGiven,
+      apprenticeActive,
+      action,
+      energyCurrent: energyAfter ? energyAfter.energyCurrent : undefined,
+      energyMax: energyAfter ? energyAfter.energyMax : undefined,
+    });
   } catch (err) {
     console.error('Merlin/Anthropic error:', err);
     res.status(502).json({ error: 'Merlin is unreachable right now. Please try again in a moment.' });
