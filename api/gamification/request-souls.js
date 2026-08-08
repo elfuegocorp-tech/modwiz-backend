@@ -1,5 +1,9 @@
-// A user's "please give me more Souls" ask. Files into a queue for an admin
-// to review — nothing is granted automatically here, ever.
+// A user's "please give me more Souls (or Energy)" ask. Files into a queue
+// for an admin to review via souls-requests.js — nothing is granted
+// automatically here, ever. Same table/queue serves both resource types,
+// distinguished by request_type, to avoid adding a second endpoint file
+// (Vercel's serverless function count is at its cap — see
+// vercel_function_count_limit memory).
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
@@ -24,11 +28,13 @@ module.exports = async function handler(req, res) {
 
   const message =
     typeof (req.body && req.body.message) === 'string' ? req.body.message.trim().slice(0, 500) : null;
+  const requestType = req.body && req.body.requestType === 'energy' ? 'energy' : 'souls';
 
   try {
     const { error } = await supabase.from('souls_requests').insert({
       wp_user_id: wpUser.id,
       message,
+      request_type: requestType,
     });
     if (error) throw error;
 
