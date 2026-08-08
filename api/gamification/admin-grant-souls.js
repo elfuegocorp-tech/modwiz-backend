@@ -1,8 +1,11 @@
-// Lets an allowlisted admin manually grant Souls to any user. This IS the
-// top-up mechanism for now — there's no self-serve purchase path yet.
+// Lets an allowlisted admin manually grant Souls OR Energy to any user
+// (resourceType, default 'souls'). This IS the top-up mechanism for now —
+// there's no self-serve purchase path yet. One endpoint for both resources
+// rather than a second file — Vercel's function count is already at its cap.
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
+const { grantEnergy } = require('../../lib/energy');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -23,6 +26,7 @@ module.exports = async function handler(req, res) {
   }
 
   const { targetWpUserId, amount, note } = req.body || {};
+  const resourceType = req.body && req.body.resourceType === 'energy' ? 'energy' : 'souls';
   if (typeof targetWpUserId !== 'number' || typeof amount !== 'number' || amount <= 0) {
     res.status(400).json({ error: 'targetWpUserId and a positive amount are required' });
     return;
@@ -37,7 +41,18 @@ module.exports = async function handler(req, res) {
     if (allowlistError) throw allowlistError;
 
     if (!allowlisted) {
-      res.status(403).json({ error: 'Not authorized to grant Souls' });
+      res.status(403).json({ error: 'Not authorized to grant' });
+      return;
+    }
+
+    if (resourceType === 'energy') {
+      const energy = await grantEnergy(targetWpUserId, amount);
+      res.status(200).json({
+        targetWpUserId,
+        energyCurrent: energy.energyCurrent,
+        energyMax: energy.energyMax,
+        amountGranted: amount,
+      });
       return;
     }
 
@@ -72,6 +87,6 @@ module.exports = async function handler(req, res) {
     res.status(200).json({ targetWpUserId, soulsBalance: nextBalance, amountGranted: amount });
   } catch (err) {
     console.error('gamification/admin-grant-souls error:', err);
-    res.status(500).json({ error: 'Could not grant Souls right now.' });
+    res.status(500).json({ error: 'Could not grant right now.' });
   }
 };
