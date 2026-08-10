@@ -476,17 +476,31 @@ function formatUserContext(context) {
   }
 
   const journal = reality.lastJournal;
+  let journalIsToday = false;
   if (typeof journal === 'string' && journal) {
     lines.push(`Jurnal terakhir yang dia tulis (${UNDATED}): "${journal}"`);
   } else if (journal && journal.text) {
     const when = journalAgeLabel(journal) ?? UNDATED;
     const justNow = typeof journal.minutesAgo === 'number' && journal.minutesAgo < 15
       && (typeof journal.daysAgo !== 'number' || journal.daysAgo <= 0);
+    journalIsToday = typeof journal.daysAgo === 'number' && journal.daysAgo <= 0;
     lines.push(
       `Jurnal terakhir yang dia tulis, ${when} (${journal.date}): "${journal.text}"` +
         (justNow
           ? ' — ini BARU SAJA ditulis, sebelum pesan ini dikirim. Jangan bilang "tadi" atau "pagi tadi" seolah waktu itu sudah lewat.'
           : '')
+    );
+  }
+
+  // A check-in happening today does not mean he wrote anything today — the
+  // ritual's Likert scales can be completed with the journal text box left
+  // empty. Left unsaid, the two facts above just sit near each other and
+  // Merlin has quietly merged "check-in hari ini" into "menulis hari ini",
+  // crediting him with words that are actually from an older entry.
+  const checkedInToday = typeof reality.daysSinceAnyCheckIn === 'number' && reality.daysSinceAnyCheckIn <= 0;
+  if (checkedInToday && !journalIsToday) {
+    lines.push(
+      'Dia SUDAH check-in hari ini, tapi TIDAK menulis apa pun di kolom jurnal hari ini — kolom itu dia lewati kosong. Jurnal yang benar-benar ada isinya adalah yang bertanggal di atas, BUKAN hari ini. Jangan bilang atau menyiratkan dia menulis sesuatu hari ini.'
     );
   }
 
