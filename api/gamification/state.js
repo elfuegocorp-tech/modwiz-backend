@@ -44,6 +44,7 @@ module.exports = async function handler(req, res) {
       energyCurrent: energy ? Math.round(energy.energyCurrent) : null,
       energyMax: energy ? energy.energyMax : null,
       extraEnergy: energy ? energy.extraEnergy : null,
+      extraEnergyBarMax: energy ? energy.extraEnergyBarMax : null,
       extraEnergyEnabled: energy ? energy.extraEnergyEnabled : false,
       energyResetInMs: energy ? msUntilReset(energy.windowStartedAt) : null,
       weeklyEnergyUsed: energy ? Math.round(energy.weeklyUsed) : null,
