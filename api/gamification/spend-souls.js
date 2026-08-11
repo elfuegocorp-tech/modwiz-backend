@@ -17,7 +17,7 @@
 //                         not the grant logic itself.
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
-const { addExtraEnergy, setExtraEnergyEnabled, SOULS_PER_EXTRA_ENERGY } = require('../../lib/energy');
+const { addExtraEnergy, setExtraEnergyEnabled, ENERGY_PER_SOUL } = require('../../lib/energy');
 const { grantSouls } = require('../../lib/souls');
 const { findSoulsPackage } = require('../../lib/souls-packages');
 
@@ -117,7 +117,7 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ error: 'Not enough Souls', soulsBalance: debit.soulsBalance });
         return;
       }
-      const extraAmount = amount * SOULS_PER_EXTRA_ENERGY;
+      const extraAmount = amount * ENERGY_PER_SOUL;
       const energy = await addExtraEnergy(wpUser.id, extraAmount);
       res.status(200).json({ soulsBalance: debit.soulsBalance, extraEnergy: energy.extraEnergy, amountGranted: extraAmount });
       return;
