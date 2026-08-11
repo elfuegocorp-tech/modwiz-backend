@@ -504,6 +504,24 @@ function formatUserContext(context) {
     );
   }
 
+  // PRIMING's 3 goals for today (Ritual Pagi), optionally checked off by
+  // COSMIC (Ritual Malam). null means he hasn't done PRIMING yet today —
+  // worth naming so you can nudge him toward it by name, same as any other
+  // ritual gap above.
+  const todayGoals = context.todayGoals;
+  if (todayGoals && Array.isArray(todayGoals.goals) && todayGoals.goals.length) {
+    const done = Array.isArray(todayGoals.goalsDone) ? todayGoals.goalsDone : null;
+    const rendered = todayGoals.goals
+      .map((goal, i) => (done ? `${goal} (${done[i] ? 'SELESAI' : 'belum selesai'})` : goal))
+      .join('; ');
+    lines.push(
+      `3 goal PRIMING yang dia tetapkan untuk HARI INI: ${rendered}` +
+        (done ? '' : ' — status selesai/belum baru terisi nanti malam lewat COSMIC.')
+    );
+  } else {
+    lines.push('Belum PRIMING (belum menetapkan 3 goal) hari ini.');
+  }
+
   // "Fokusmu Minggu Ini" — ke mana energinya pergi, dikelompokkan per arah.
   // Vonisnya ikut dikirim, bukan dihitung ulang di sini, supaya Merlin tidak
   // pernah bilang hal yang berbeda dari kartu yang sedang dilihat user.
