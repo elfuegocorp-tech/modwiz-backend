@@ -7,9 +7,19 @@
 //                         economy entry point, no longer just a test
 //   toggle_extra_energy — flips whether Extra Energy auto-drains once the
 //                         free quota runs out; no Souls involved
+//   mock_purchase       — grants a Souls package (lib/souls-packages.js)
+//                         with NO real payment behind it, standing in for
+//                         RevenueCat until that's wired up. Admin-only for
+//                         now (same admin_allowlist as Kelola Souls) —
+//                         otherwise any logged-in user could mint free
+//                         Souls. Once RevenueCat + server-side receipt
+//                         validation lands, this gate is what gets replaced,
+//                         not the grant logic itself.
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { addExtraEnergy, setExtraEnergyEnabled, SOULS_PER_EXTRA_ENERGY } = require('../../lib/energy');
+const { grantSouls } = require('../../lib/souls');
+const { findSoulsPackage } = require('../../lib/souls-packages');
 
 async function debitSouls(wpUserId, amount, reason) {
   const { data: current, error: fetchError } = await supabase
@@ -60,13 +70,38 @@ module.exports = async function handler(req, res) {
     ? 'buy_extra_energy'
     : req.body && req.body.action === 'toggle_extra_energy'
       ? 'toggle_extra_energy'
-      : 'test_spend';
+      : req.body && req.body.action === 'mock_purchase'
+        ? 'mock_purchase'
+        : 'test_spend';
 
   try {
     if (action === 'toggle_extra_energy') {
       const enabled = !!(req.body && req.body.enabled);
       const state = await setExtraEnergyEnabled(wpUser.id, enabled);
       res.status(200).json({ extraEnergyEnabled: state.extraEnergyEnabled, extraEnergy: state.extraEnergy });
+      return;
+    }
+
+    if (action === 'mock_purchase') {
+      const { data: allowlisted, error: allowlistError } = await supabase
+        .from('admin_allowlist')
+        .select('wp_user_id')
+        .eq('wp_user_id', wpUser.id)
+        .maybeSingle();
+      if (allowlistError) throw allowlistError;
+      if (!allowlisted) {
+        res.status(403).json({ error: 'Pembelian belum aktif — coming soon.' });
+        return;
+      }
+
+      const pkg = findSoulsPackage(req.body && req.body.packageId);
+      if (!pkg) {
+        res.status(400).json({ error: 'Unknown packageId' });
+        return;
+      }
+
+      const soulsBalance = await grantSouls(wpUser.id, pkg.souls, `purchase:${pkg.id}`);
+      res.status(200).json({ soulsBalance, amountGranted: pkg.souls, packageId: pkg.id });
       return;
     }
 

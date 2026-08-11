@@ -6,6 +6,7 @@
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { grantEnergy } = require('../../lib/energy');
+const { grantSouls } = require('../../lib/souls');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -56,33 +57,12 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    // souls_ledger has a foreign key into gamification_state, and a
-    // brand-new user (never done a check-in) may not have a row yet —
-    // make sure one exists before touching their balance.
-    const { data: target, error: targetFetchError } = await supabase
-      .from('gamification_state')
-      .select('souls_balance')
-      .eq('wp_user_id', targetWpUserId)
-      .maybeSingle();
-    if (targetFetchError) throw targetFetchError;
-
-    const nextBalance = (target ? target.souls_balance : 0) + amount;
-
-    const { error: upsertError } = await supabase
-      .from('gamification_state')
-      .upsert(
-        { wp_user_id: targetWpUserId, souls_balance: nextBalance, updated_at: new Date().toISOString() },
-        { onConflict: 'wp_user_id' }
-      );
-    if (upsertError) throw upsertError;
-
-    const { error: ledgerError } = await supabase.from('souls_ledger').insert({
-      wp_user_id: targetWpUserId,
+    const nextBalance = await grantSouls(
+      targetWpUserId,
       amount,
-      reason: note ? `admin_grant: ${note}` : 'admin_grant',
-      granted_by: wpUser.id,
-    });
-    if (ledgerError) throw ledgerError;
+      note ? `admin_grant: ${note}` : 'admin_grant',
+      wpUser.id
+    );
 
     res.status(200).json({ targetWpUserId, soulsBalance: nextBalance, amountGranted: amount });
   } catch (err) {

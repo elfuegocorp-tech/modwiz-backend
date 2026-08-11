@@ -1,5 +1,5 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
-const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset } = require('../lib/energy');
+const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset } = require('../lib/energy');
 
 // "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
 // user doesn't see a countdown that reads as already over).
@@ -816,11 +816,24 @@ module.exports = async function handler(req, res) {
   // should never actually reach the model. Fixed-window quota (not
   // continuous drip) — energyBefore.energyCurrent is only what's left in
   // the current 16h window; it snaps back to full at windowStartedAt+16h,
-  // not gradually. Extra Energy (Souls-bought) only covers the gap when the
-  // user has explicitly turned it on — see setExtraEnergyEnabled.
+  // not gradually. A weekly ceiling sits on top of that (see lib/energy.js)
+  // — quota can be blocked by either running out. Extra Energy (Souls-bought)
+  // only covers the gap when the user has explicitly turned it on — see
+  // setExtraEnergyEnabled — and isn't itself subject to the weekly ceiling.
+  const now = new Date().toISOString();
   const energyBefore = await getEnergyState(wpUserId).catch((err) => {
     console.error('Merlin energy read failed, failing open:', err);
-    return { energyCurrent: 1, energyMax: 100, extraEnergy: 0, extraEnergyEnabled: false, windowStartedAt: new Date().toISOString() }; // fail open — don't block chat on our own bug
+    // fail open — don't block chat on our own bug
+    return {
+      energyCurrent: 1,
+      energyMax: 100,
+      extraEnergy: 0,
+      extraEnergyEnabled: false,
+      windowStartedAt: now,
+      weeklyUsed: 0,
+      weeklyMax: 700,
+      weeklyWindowStartedAt: now,
+    };
   });
   console.log(
     'Merlin energy check:',
@@ -828,13 +841,24 @@ module.exports = async function handler(req, res) {
     energyBefore.energyCurrent,
     '/',
     energyBefore.energyMax,
+    'weekly:',
+    energyBefore.weeklyUsed,
+    '/',
+    energyBefore.weeklyMax,
     'extra:',
     energyBefore.extraEnergy,
     energyBefore.extraEnergyEnabled ? '(on)' : '(off)'
   );
-  const canAfford = energyBefore.energyCurrent >= 1 || (energyBefore.extraEnergyEnabled && energyBefore.extraEnergy >= 1);
+  const weeklyRemaining = Math.max(0, energyBefore.weeklyMax - energyBefore.weeklyUsed);
+  const quotaAvailable = energyBefore.energyCurrent >= 1 && weeklyRemaining >= 1;
+  const canAfford = quotaAvailable || (energyBefore.extraEnergyEnabled && energyBefore.extraEnergy >= 1);
   if (!canAfford) {
-    const waitMs = msUntilReset(energyBefore.windowStartedAt);
+    // Whichever cap is actually the bottleneck decides the real wait: if
+    // there's still session quota but the weekly ceiling is what's hit, the
+    // session resetting first won't unblock anything — the weekly reset is
+    // the one that matters.
+    const waitMs =
+      weeklyRemaining < 1 ? msUntilWeeklyReset(energyBefore.weeklyWindowStartedAt) : msUntilReset(energyBefore.windowStartedAt);
     res.status(429).json({
       error: buildEnergyBlockedMessage(waitMs),
       energyCurrent: 0,
