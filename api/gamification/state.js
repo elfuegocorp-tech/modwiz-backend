@@ -8,15 +8,17 @@
 // AppState foreground event, so "next time the user opens the app" falls
 // out for free.
 //
-// Also multiplexed by ?view=leaderboard to return the weekly ranking
-// instead of the normal per-user payload — folded in here rather than a
-// new api/*.js file since this repo is already at Vercel's 12-serverless-
-// function cap (this file already merged in Energy for the same reason).
+// Also multiplexed by ?view= to return something other than the normal
+// per-user payload — `leaderboard` for the weekly ranking, `souls_packages`
+// for the shop catalog. Folded in here rather than new api/*.js files since
+// this repo is already at Vercel's 12-serverless-function cap (this file
+// already merged in Energy for the same reason).
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/energy');
 const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
+const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -33,6 +35,22 @@ module.exports = async function handler(req, res) {
   const wpUser = await verifyWpUser(authHeader).catch(() => null);
   if (!wpUser) {
     res.status(401).json({ error: 'Could not verify your Modwiz Mastery login' });
+    return;
+  }
+
+  // Answered before maybeGrantWeeklyRewards() below: this view is the shop
+  // asking for a price list, not a user opening the app, so it shouldn't drag
+  // the weekly-reward side effect along with it.
+  if (req.query.view === 'souls_packages') {
+    try {
+      res.status(200).json({ packages: await listSoulsPackages() });
+    } catch (err) {
+      // A missing table (migration not run yet) or an unreachable Supabase
+      // must not empty the shop — fall back to the seed catalog, which is the
+      // same list the app ships with.
+      console.error('gamification/state souls_packages read failed:', err);
+      res.status(200).json({ packages: FALLBACK_PACKAGES, degraded: true });
+    }
     return;
   }
 
