@@ -1,38 +1,21 @@
-// Records that a user completed a core action today (a morning or evening
-// check-in — either counts, per the Model B streak decision) and updates
-// their streak, XP, and Souls together in one request. Streak/XP/Souls stay
-// consistent by construction this way — splitting them into separate calls
-// would risk one landing without the others.
+// Generic action-XP endpoint (2026-08-12 rebuild). Every XP-earning action
+// in the app posts here with an `actionType` (see lib/xp-actions.js for the
+// full catalog, amounts, and dedupe rules) and gets a flat XP grant — no
+// streak multiplier anymore.
 //
-// XP and Souls numbers below are a first-pass default, not a locked-in
-// design decision — they're plain constants specifically so they're easy to
-// retune later without touching the logic.
+// Streak stays completely separate bookkeeping (Model B: morning-or-evening
+// check-in, either counts once/day) and is only ever advanced by the two
+// check-in action types, unchanged from before.
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
-
-const BASE_XP = 10;
-const STREAK_XP_PER_DAY = 2;
-const STREAK_XP_CAP = 40;
-
-// One-time Souls bonus per streak milestone. Awarded exactly once per user,
-// the moment their streak crosses that number (see crossedMilestones below).
-const STREAK_SOULS_MILESTONES = [
-  { days: 7, souls: 20 },
-  { days: 30, souls: 50 },
-  { days: 100, souls: 100 },
-];
+const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
 
 function requireLocalDate(localDate) {
   if (typeof localDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
     throw new Error('localDate must be a YYYY-MM-DD string (the device\'s own local date)');
   }
   return localDate;
-}
-
-function daysBetween(earlier, later) {
-  const diffMs = new Date(later).getTime() - new Date(earlier).getTime();
-  return Math.round(diffMs / 86400000);
 }
 
 module.exports = async function handler(req, res) {
@@ -54,6 +37,12 @@ module.exports = async function handler(req, res) {
   }
   const wpUserId = wpUser.id;
 
+  const actionType = req.body && req.body.actionType;
+  if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
+    res.status(400).json({ error: 'Unknown or missing actionType' });
+    return;
+  }
+
   let localDate;
   try {
     localDate = requireLocalDate(req.body && req.body.localDate);
@@ -62,86 +51,32 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  const refId = req.body && typeof req.body.refId === 'string' ? req.body.refId : undefined;
+
   try {
-    const { data: existing, error: fetchError } = await supabase
+    const xpResult = await awardXp(wpUserId, actionType, refId, localDate);
+
+    // Only the two check-in actions ever touch the streak.
+    let streakResult = null;
+    if (actionType === 'checkin_morning' || actionType === 'checkin_evening') {
+      streakResult = await advanceStreak(wpUserId, localDate);
+    }
+
+    const { data: state, error: stateError } = await supabase
       .from('gamification_state')
       .select('*')
       .eq('wp_user_id', wpUserId)
       .maybeSingle();
-
-    if (fetchError) throw fetchError;
-
-    const alreadyCountedToday = existing && existing.last_active_date === localDate;
-
-    if (alreadyCountedToday) {
-      // Second check-in the same day (morning + evening both done) — the
-      // app already saved it, but streak/XP/Souls only count once per day.
-      res.status(200).json({
-        streakCount: existing.streak_count,
-        xpTotal: existing.xp_total,
-        soulsBalance: existing.souls_balance,
-        xpAwarded: 0,
-        soulsAwarded: 0,
-        alreadyCountedToday: true,
-      });
-      return;
-    }
-
-    let nextStreak;
-    if (!existing || !existing.last_active_date) {
-      nextStreak = 1;
-    } else if (daysBetween(existing.last_active_date, localDate) === 1) {
-      nextStreak = existing.streak_count + 1;
-    } else {
-      nextStreak = 1; // a gap (or first-ever action) resets the streak
-    }
-
-    const streakBonus = Math.min(nextStreak * STREAK_XP_PER_DAY, STREAK_XP_CAP);
-    const xpAwarded = BASE_XP + streakBonus;
-    const nextXpTotal = (existing ? existing.xp_total : 0) + xpAwarded;
-
-    // Only milestones this exact update just crossed — keeps a milestone
-    // from ever firing twice for the same user.
-    const previousStreak = existing ? existing.streak_count : 0;
-    const crossedMilestones = STREAK_SOULS_MILESTONES.filter(
-      (m) => previousStreak < m.days && nextStreak >= m.days
-    );
-    const soulsAwarded = crossedMilestones.reduce((sum, m) => sum + m.souls, 0);
-    const nextSoulsBalance = (existing ? existing.souls_balance : 0) + soulsAwarded;
-
-    const { error: upsertError } = await supabase
-      .from('gamification_state')
-      .upsert(
-        {
-          wp_user_id: wpUserId,
-          streak_count: nextStreak,
-          last_active_date: localDate,
-          xp_total: nextXpTotal,
-          souls_balance: nextSoulsBalance,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'wp_user_id' }
-      );
-    if (upsertError) throw upsertError;
-
-    if (soulsAwarded > 0) {
-      const { error: ledgerError } = await supabase.from('souls_ledger').insert(
-        crossedMilestones.map((m) => ({
-          wp_user_id: wpUserId,
-          amount: m.souls,
-          reason: `streak_milestone_${m.days}`,
-        }))
-      );
-      if (ledgerError) throw ledgerError;
-    }
+    if (stateError) throw stateError;
 
     res.status(200).json({
-      streakCount: nextStreak,
-      xpTotal: nextXpTotal,
-      soulsBalance: nextSoulsBalance,
-      xpAwarded,
-      soulsAwarded,
-      alreadyCountedToday: false,
+      streakCount: state ? state.streak_count : 0,
+      xpTotal: state ? state.xp_total : 0,
+      soulsBalance: state ? state.souls_balance : 0,
+      xpAwarded: xpResult.xpAwarded,
+      xpAlreadyAwarded: xpResult.alreadyAwarded,
+      soulsAwarded: streakResult ? streakResult.soulsAwarded : 0,
+      streakAlreadyCountedToday: streakResult ? streakResult.alreadyCountedToday : null,
     });
   } catch (err) {
     console.error('gamification/record-action error:', err);
