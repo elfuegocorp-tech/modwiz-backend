@@ -60,6 +60,30 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Also not an XP action — seeds/refreshes the first_name/avatar_url cache
+  // (see lib/leaderboard.js) right at login instead of waiting for the
+  // user's next check-in. Uses upsert, unlike the two check-in call sites'
+  // plain .update(), because a brand-new user can hit this before
+  // awardXp/advanceStreak has ever created their gamification_state row.
+  if (actionType === 'sync_profile') {
+    const syncFirstName = typeof req.body.firstName === 'string' ? req.body.firstName.trim() : '';
+    const syncAvatarUrl = typeof req.body.avatarUrl === 'string' ? req.body.avatarUrl.trim() : '';
+    try {
+      if (syncFirstName || syncAvatarUrl) {
+        const row = { wp_user_id: wpUserId, updated_at: new Date().toISOString() };
+        if (syncFirstName) row.first_name = syncFirstName;
+        if (syncAvatarUrl) row.avatar_url = syncAvatarUrl;
+        const { error } = await supabase.from('gamification_state').upsert(row, { onConflict: 'wp_user_id' });
+        if (error) throw error;
+      }
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('gamification/record-action sync_profile error:', err);
+      res.status(500).json({ error: 'Could not update your progress right now.' });
+    }
+    return;
+  }
+
   if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
     res.status(400).json({ error: 'Unknown or missing actionType' });
     return;
