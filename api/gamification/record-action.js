@@ -38,6 +38,28 @@ module.exports = async function handler(req, res) {
   const wpUserId = wpUser.id;
 
   const actionType = req.body && req.body.actionType;
+
+  // Not an XP action — acks the leaderboard reward popup so it doesn't show
+  // again. Handled here rather than on state.js (documented read-only) or a
+  // new api/*.js file (12-function cap). Skips the XP_ACTIONS/localDate
+  // validation below entirely since no XP is involved.
+  if (actionType === 'ack_leaderboard_reward') {
+    try {
+      const { error } = await supabase
+        .from('souls_ledger')
+        .update({ seen_at: new Date().toISOString() })
+        .eq('wp_user_id', wpUserId)
+        .like('reason', 'leaderboard:%')
+        .is('seen_at', null);
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('gamification/record-action ack_leaderboard_reward error:', err);
+      res.status(500).json({ error: 'Could not update your progress right now.' });
+    }
+    return;
+  }
+
   if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
     res.status(400).json({ error: 'Unknown or missing actionType' });
     return;
@@ -53,6 +75,14 @@ module.exports = async function handler(req, res) {
 
   const refId = req.body && typeof req.body.refId === 'string' ? req.body.refId : undefined;
 
+  // Opportunistic first-name cache for the leaderboard (see
+  // lib/leaderboard.js) — there's no server-side way to look up another
+  // user's name, so the app sends its own already-known user.firstName
+  // along and it gets persisted here. A gamification_state row is
+  // guaranteed to exist by the time this runs (awardXp below creates one on
+  // first grant), so .update() is safe and won't insert a partial row.
+  const firstName = req.body && typeof req.body.firstName === 'string' ? req.body.firstName.trim() : '';
+
   try {
     const xpResult = await awardXp(wpUserId, actionType, refId, localDate);
 
@@ -60,6 +90,14 @@ module.exports = async function handler(req, res) {
     let streakResult = null;
     if (actionType === 'checkin_morning' || actionType === 'checkin_evening') {
       streakResult = await advanceStreak(wpUserId, localDate);
+    }
+
+    if (firstName) {
+      const { error: nameError } = await supabase
+        .from('gamification_state')
+        .update({ first_name: firstName, updated_at: new Date().toISOString() })
+        .eq('wp_user_id', wpUserId);
+      if (nameError) console.error('gamification/record-action first_name cache failed:', nameError);
     }
 
     const { data: state, error: stateError } = await supabase
