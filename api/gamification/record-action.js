@@ -83,6 +83,10 @@ module.exports = async function handler(req, res) {
   // first grant), so .update() is safe and won't insert a partial row.
   const firstName = req.body && typeof req.body.firstName === 'string' ? req.body.firstName.trim() : '';
 
+  // Same cache, same reasoning, for the leaderboard's profile picture —
+  // the app already knows its own user.avatarUrl (from modwiz/v1/profile).
+  const avatarUrl = req.body && typeof req.body.avatarUrl === 'string' ? req.body.avatarUrl.trim() : '';
+
   try {
     const xpResult = await awardXp(wpUserId, actionType, refId, localDate);
 
@@ -92,12 +96,12 @@ module.exports = async function handler(req, res) {
       streakResult = await advanceStreak(wpUserId, localDate);
     }
 
-    if (firstName) {
-      const { error: nameError } = await supabase
-        .from('gamification_state')
-        .update({ first_name: firstName, updated_at: new Date().toISOString() })
-        .eq('wp_user_id', wpUserId);
-      if (nameError) console.error('gamification/record-action first_name cache failed:', nameError);
+    if (firstName || avatarUrl) {
+      const update = { updated_at: new Date().toISOString() };
+      if (firstName) update.first_name = firstName;
+      if (avatarUrl) update.avatar_url = avatarUrl;
+      const { error: nameError } = await supabase.from('gamification_state').update(update).eq('wp_user_id', wpUserId);
+      if (nameError) console.error('gamification/record-action first_name/avatar_url cache failed:', nameError);
     }
 
     const { data: state, error: stateError } = await supabase

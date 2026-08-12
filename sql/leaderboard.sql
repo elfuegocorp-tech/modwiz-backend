@@ -14,6 +14,12 @@
 -- user.firstName on record-action.js calls (see that file's change).
 alter table gamification_state add column if not exists first_name text;
 
+-- Same cache, same reason, for the profile picture shown next to each
+-- leaderboard row — populated opportunistically from the app's own
+-- already-known user.avatarUrl (itself sourced from modwiz/v1/profile, see
+-- modwiz-app/contexts/auth-context.tsx) alongside first_name above.
+alter table gamification_state add column if not exists avatar_url text;
+
 -- The weekly leaderboard window is computed from xp_events.created_at (the
 -- server-set timestamp — see lib/leaderboard.js for why local_date isn't
 -- usable here), so that column needs an index once it's queried by range
