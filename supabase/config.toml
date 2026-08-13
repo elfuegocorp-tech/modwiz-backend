@@ -1,0 +1,41 @@
+project_id = "itqzoziplfiazsavzdxd"
+
+# WHY verify_jwt = false ON BOTH FUNCTIONS
+#
+# Not a relaxation of security — a consequence of where identity lives.
+#
+# By default Supabase's API gateway rejects any request whose Authorization
+# header isn't `Bearer <supabase-jwt>`, before the function runs at all. But
+# identity in this system is WordPress/Ultimate Member, not Supabase Auth, so the
+# header carries a WordPress Application Password (`Basic <base64>`) instead —
+# and the gateway answers UNAUTHORIZED_INVALID_JWT_FORMAT without ever calling
+# our code. That is what a fresh deploy does to every single request.
+#
+# The alternative would be shipping a Supabase anon key inside the app bundle to
+# satisfy the gateway, and sending the real credential in a second custom header.
+# That trades one more secret in the client for a check that isn't checking
+# anything we care about.
+#
+# It also would not fix privacy/purge, which is called by WordPress AFTER a user
+# is deleted. WordPress has no Supabase token, and never will.
+#
+# So the gateway check is off and every route does its own auth:
+#   - the four user routes call verifyWpUser(), which round-trips to WordPress
+#     and FAILS CLOSED — a null result is a 401, never a fallback to a user id
+#     from the request body (see _shared/http.ts)
+#   - privacy/purge requires the MODWIZ_PURGE_KEY shared secret
+#
+# These functions are therefore publicly reachable and must stay written that
+# way: nothing may ever trust the caller about who it is. Do not add a route
+# here that assumes the gateway vetted anybody.
+#
+# Keeping this in config.toml rather than passing --no-verify-jwt by hand is
+# deliberate. A forgotten flag on some future deploy would 401 the entire app
+# instantly, and the error names JWTs — pointing at exactly the wrong thing to
+# debug, which is where this cost an evening once already.
+
+[functions.privacy]
+verify_jwt = false
+
+[functions.content]
+verify_jwt = false

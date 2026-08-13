@@ -1,0 +1,7 @@
+{
+  "// nodeModulesDir": "supabase-js pulls realtime-js from npm, which Deno can only resolve with a real node_modules dir. 'auto' lets Deno create one on demand instead of requiring a manual `deno install` before every typecheck.",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2"
+  }
+}
