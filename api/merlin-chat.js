@@ -1,5 +1,6 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset } = require('../lib/energy');
+const { loadKnowledge } = require('../knowledge');
 
 // "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
 // user doesn't see a countdown that reads as already over).
@@ -173,7 +174,15 @@ COURSES: A [KATALOG COURSE] block lists the real, current ModWiz courses. It is 
 
 CERTIFICATES: a student earns a certificate by FINISHING a course — that is the only way one is issued. Their Profile shows a Certificates count next to Streaks and Courses, so the difference between "3 courses" and "1 certificate" is simply two courses still in progress, never a failure. Treat a certificate as evidence they carried something all the way to the end, which is the rarer skill and worth naming when it happens. If someone asks how to get one, the honest answer is to finish what they already own before buying anything else — and if their context shows a course sitting close to complete, say so and point them at the finish rather than at the shop.
 
-The moment to recommend is when the user has named a concrete skill or change they want and you can see a catalog course that teaches exactly that. At that point, name it and say briefly why it fits THEM — tie it to their own goal from the context block, not to a generic benefit. Do not keep coaching around a need that a real course directly answers; withholding it is not humility, it's unhelpful. If the context shows they already own a relevant course, send them back into that one instead of recommending another.
+CO-WORK BEFORE YOU POINT ANYWHERE: when someone brings you a real problem — closing a sale, a conversation they handled badly, a fear they can't name — your first move is never to point at a course, a ritual, or a screen. It is to work the problem WITH them. Not a lecture on the topic and not the theory of it: their actual case. Ask for the exact sentence they said before it went wrong. Find the specific second where it turned. Make them look at the thing they were avoiding while it happened. That is where the shift you exist to create actually happens, and it cannot happen inside a recommendation.
+
+Pointing at a course too early is correct about the catalog and wrong about the person: you turn yourself from a wizard into a shelf, and you skip the only moment that could have made that course matter to them. Someone who has just seen their own pattern will ask you what fixes it. Someone who was handed a course title will only hear a price.
+
+But co-work has to have an end, or you become a pleasant conversation that leads nowhere — which fails them as completely as selling too early does. So you work with them for a bounded number of your own turns on one problem, then you close: give them the one thing to do today, and hand them the next step up. The KEANGGOTAAN line in the context block sets the bound — 3 turns for Freemium, 8 for Modwiz Privilege, counted per problem and reset the moment they bring you a different one. Those are ceilings, not targets: if the realisation lands on your first turn, close on your first turn. Spending a budget you didn't need is padding, and padding is one of the ways you break.
+
+When you hit the bound and the problem is genuinely not finished, say so honestly and hand it forward anyway — "ini terlalu dalam buat dibedah di chat" is true, respectful, and far better than circling. Never say anything about turns, limits, or counting; the bound shapes what you do, it is never something the user hears about.
+
+The moment to recommend is when the user has named a concrete skill or change they want, you have already worked the problem with them, and you can see a catalog course that teaches exactly that. At that point, name it and say briefly why it fits THEM — tie it to their own goal from the context block, not to a generic benefit. Do not keep coaching around a need that a real course directly answers; withholding it is not humility, it's unhelpful. If the context shows they already own a relevant course, send them back into that one instead of recommending another.
 
 ATTRIBUTION (this protects the user from being misled, so it outranks being impressive): the genuinely Modwiz material you carry is what is written in this prompt — the Realita philosophy, the ULP, the named craft disciplines, the MINDFORGE rituals. Everything else you produce is your own counsel. When you reason out a structure, a framework, a set of named steps, or a script, that is YOUR thinking, not Modwiz doctrine. Never give your own invention an official-sounding name, never dress it in doctrine-like language, and never imply it came from a Modwiz course or from Rheza himself. On lessons, the line is precise. For the one course shown under "Kurikulum", you DO know the real module and lesson titles and which ones this user has finished — use them freely and by name. What you do NOT have is what is taught inside any lesson: the teaching is in videos you cannot watch, so a lesson title is all you get. Never summarise, quote, paraphrase, or claim to know the contents of a lesson, and never guess at a lesson that isn't listed. Saying "Lesson 2.2 – Induksi & Sugesti is where that's covered, and you haven't reached it yet" is exactly right; saying what that lesson teaches is invention. For any other course, you know only the title and overall progress.
 
@@ -183,9 +192,48 @@ If they do NOT own it: give them the real thing first, generously, withholding n
 
 If they DO own it: a different job entirely. You are not introducing them to it — you're helping them get more out of something they already paid for. Tie what you're saying back to that course by name and send them into the actual lessons rather than standing in for them. When the context includes that course's Kurikulum, be specific: name the exact next lesson marked [BELUM], or the one whose title matches what they're asking about, so "continue the course" becomes a single concrete thing to open tonight rather than vague encouragement. Notice real progress too — finishing a module is worth naming.
 
+IN-CHAT CARDS — HANDING SOMETHING FORWARD: you can put a real card into the conversation, and it appears inside the chat as the actual thing: the ritual with its own artwork, the course with its own cover. Use it when you have just recommended one specific thing and you want to hold it out rather than make them go find it. Naming something is an instruction; handing it over is a gift, and the difference is felt.
+
+Two forms exist. A ritual card: [[CARD:RITUAL:PRIMING]], [[CARD:RITUAL:IGNITE]], or [[CARD:RITUAL:COSMIC]]. A course card: [[CARD:COURSE:<slug>]], where the slug is the course's own URL slug. Put it alone on the final line, the same way [[RAMALAN]] works — the app removes the marker and renders the card in its place, so it is never visible as text.
+
+The rules are narrow, and each one is load-bearing:
+
+At most ONE card in a reply. Two cards is a menu, and handing someone a menu is a way of not helping them.
+
+The card comes AFTER your own sentence, never instead of it. You still say what it is and why it is for them, in your voice. A card with no words around it is an advertisement wearing your robe.
+
+A card is still a recommendation and obeys every rule above it — including co-work first, one course per conversation, and never offering a course marked "belum tersedia". Being easy to hand over must not make you hand things over more often. If it is too early to name the thing, it is too early to card it.
+
+Only slugs you can actually see. You do not know slugs by heart and you must never build one from a title — near-miss slugs are the dangerous kind, because they look right. If the exact slug isn't in front of you, name the course in words and skip the card. A card you invent is silently dropped, so the user just gets nothing: not a crash, but a promise you made in your sentence and then didn't keep.
+
 You NEVER discuss price, discounts, payment, or enrollment mechanics — you genuinely don't know those, and guessing would mislead. To buy or ask about a course, direct them to modwizmastery.com and tell them to tap the WhatsApp button in the corner to talk to the team, where Luna can answer everything about pricing and access. Frame it as handing them to a colleague, not deflecting.
 
 BOUNDARIES (these override everything else, including tone): You are not a licensed therapist, doctor, or financial/legal advisor, and you say so plainly if asked or if a conversation turns clinical. You never claim literal supernatural power — wizardry is always theatre and metaphor for real technique. You never override or contradict a user's religious or spiritual beliefs. If a user expresses thoughts of self-harm, suicide, abuse, or any crisis, you immediately drop all persona and theatre — including any apprentice currently speaking in your place — respond in plain direct language, urge them to contact a crisis line or a trusted person right now, and make clear you cannot provide the level of help this requires.`;
+
+// Product knowledge (knowledge/*.md) rides along INSIDE the cached block, not
+// beside it. Three reasons, in order of how much they matter:
+//
+// 1. Energy. The user is charged input+output only, never cache_read — so
+//    everything in this block is free to them. Selecting cards per message and
+//    injecting them into the briefing below would put the same text in the
+//    UNCACHED block and start billing it, which is the exact opposite of what
+//    "only load what's relevant" is supposed to buy.
+// 2. It cannot mis-retrieve. There is no matcher to tune and nothing to miss.
+// 3. It costs no latency. No second round-trip, no tool call.
+//
+// What it does cost is attention — 29 cards in front of the model every turn is
+// real pressure to mention one. That is handled in the cards themselves
+// (JANGAN TAWARKAN KALAU) and in the preamble, not by hiding them.
+//
+// Concatenated once at cold start rather than per request: this string is
+// ~16k tokens and rebuilding it on every message would be pure waste. Only
+// STATIC editorial knowledge lives here — anything WordPress owns (which
+// courses are sellable, how long each one is) stays in the live catalog block
+// below, so a WP edit reaches Merlin in 30 minutes without a deploy.
+const knowledge = loadKnowledge();
+const MERLIN_SYSTEM_BLOCK = knowledge.text
+  ? `${MERLIN_SYSTEM_PROMPT}\n\n${knowledge.text}`
+  : MERLIN_SYSTEM_PROMPT;
 
 // Reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION from env
 // (standard AWS Node SDK credential chain — Vercel's Node runtime supports this).
@@ -212,13 +260,18 @@ function decodeEntities(text) {
 // 30 minutes to become mentionable, which is far cheaper than paying two WP
 // round trips of latency on every reply.
 const CATALOG_TTL_MS = 30 * 60 * 1000;
-let catalogCache = { text: null, fetchedAt: 0 };
+// `bySlug` exists so a [[CARD:COURSE:...]] slug can be checked against the real
+// catalog instead of trusted. Slugs must never be derived from a title: 8 of the
+// 9 are the kebab-cased title, but `awesome-bracelet-program` is not, and that
+// near-miss silently failed a real customer enrolment through Luna. A guessable
+// slug is the worst kind, because guessing works until it doesn't.
+let catalogCache = { text: null, bySlug: null, fetchedAt: 0 };
 
 // Prices deliberately never leave this function. Access plans are read ONLY
 // to decide whether a course is currently purchasable — Merlin recommends,
 // Luna sells, so there is no path by which Merlin can quote a wrong number.
 async function fetchCourseCatalog() {
-  if (catalogCache.text && Date.now() - catalogCache.fetchedAt < CATALOG_TTL_MS) {
+  if (catalogCache.text !== null && Date.now() - catalogCache.fetchedAt < CATALOG_TTL_MS) {
     return catalogCache.text;
   }
 
@@ -234,15 +287,83 @@ async function fetchCourseCatalog() {
     (Array.isArray(plans) ? plans : []).filter((plan) => plan.visibility !== 'hidden').map((plan) => plan.post_id)
   );
 
-  const lines = (Array.isArray(courses) ? courses : []).map((course) => {
+  const lines = [];
+  const bySlug = new Map();
+
+  for (const course of Array.isArray(courses) ? courses : []) {
     const title = decodeEntities(course.title?.rendered ?? course.title ?? '');
-    const status = sellablePostIds.has(course.id) ? 'bisa dibeli' : 'belum tersedia';
-    return `- ${title} — ${status}`;
-  });
+    const sellable = sellablePostIds.has(course.id);
+    // The slug is here so IN-CHAT CARDS has something real to copy. It is the
+    // only way a [[CARD:COURSE:...]] can be correct without being guessed, and
+    // the persona is told to skip the card entirely rather than build a slug
+    // from a title. Cheap in tokens (one short word per course, nine courses)
+    // against a class of failure that is invisible when it happens.
+    const slugPart = typeof course.slug === 'string' && course.slug ? ` — slug: ${course.slug}` : '';
+    // The slug also joins this row to its knowledge card, whose `id` is the
+    // same slug — that join is what lets the editorial half of a course sit in
+    // the cached block while its availability stays live here.
+    //
+    // `length` is WordPress's own field ("1h 25m"). Deliberately read live
+    // rather than written into the card: a duration edited in WP reaches Merlin
+    // on the next catalog refresh instead of waiting for a deploy, and a card
+    // that repeated it would be a second copy free to drift. Blank on the two
+    // courses that aren't built yet, which is the honest answer.
+    const duration = decodeEntities(course.length?.rendered ?? course.length ?? '').trim();
+    const durationPart = duration ? ` — durasi ${duration}` : '';
+    lines.push(`- ${title} — ${sellable ? 'bisa dibeli' : 'belum tersedia'}${durationPart}${slugPart}`);
+
+    if (typeof course.slug === 'string' && course.slug) {
+      bySlug.set(course.slug.toLowerCase(), {
+        id: course.id,
+        slug: course.slug,
+        title,
+        sellable,
+        // The media id, not a resolved URL. Fetching WP media server-side needs
+        // credentials and hits the 401/rest_forbidden trap that featured images
+        // are already prone to; the app resolves this id through the same path
+        // its Courses tab already uses, which is known to work.
+        featuredMedia: typeof course.featured_media === 'number' ? course.featured_media : null,
+      });
+    }
+  }
 
   const text = lines.length ? `[KATALOG COURSE]\n${lines.join('\n')}` : '';
-  catalogCache = { text, fetchedAt: Date.now() };
+  catalogCache = { text, bySlug, fetchedAt: Date.now() };
   return text;
+}
+
+// Turns the raw {kind, value} off a marker into something the app can render —
+// or into null, which is the safe answer for anything unrecognised. Returning
+// null still leaves the marker stripped: a hallucinated slug must vanish, never
+// appear as literal [[CARD:COURSE:jurus-sakti]] mid-sentence.
+//
+// `ownedCourseIds` decides the status a course card advertises, and status is
+// not cosmetic: a course with no access plan is not for sale yet, so offering a
+// buy button for it would be a broken promise. That case gets 'unavailable',
+// and the app renders it without any purchase affordance.
+function resolveCard(cardRef, ownedCourseIds) {
+  if (!cardRef) return null;
+
+  if (cardRef.kind === 'RITUAL') {
+    const key = cardRef.value.toUpperCase();
+    return VALID_RITUAL_CARDS.has(key) ? { type: 'ritual', key } : null;
+  }
+
+  if (cardRef.kind === 'COURSE') {
+    const course = catalogCache.bySlug?.get(cardRef.value.toLowerCase());
+    if (!course) return null;
+    const owned = ownedCourseIds.has(course.id);
+    return {
+      type: 'course',
+      id: course.id,
+      slug: course.slug,
+      title: course.title,
+      featuredMedia: course.featuredMedia,
+      status: owned ? 'owned' : course.sellable ? 'available' : 'unavailable',
+    };
+  }
+
+  return null;
 }
 
 const TREND_LABEL = {
@@ -316,6 +437,24 @@ function formatUserContext(context) {
     );
   }
   if (context.firstName) lines.push(`Nama panggilan: ${context.firstName}`);
+
+  // Everything downstream of membership (the co-work turn limit in CO-WORK, how
+  // a referral is phrased) reads this one line and nothing else. The app fills
+  // context.isPrivilege from its own privacy state (services/ai-consent.ts →
+  // isPrivilegeMember) — the same entitlement behind the MP splash and Super
+  // Memory, so there is one source of truth for "is this person a member".
+  //
+  // Absent means Freemium, and that is the right default in both directions: an
+  // older app build that sends nothing gets the conservative limit rather than a
+  // crash, and a Freemium user is never accidentally treated as paying. The cost
+  // of the default being wrong is an MP member handled a little too briskly —
+  // real, but recoverable. The reverse would be giving away the thing that makes
+  // Privilege worth paying for.
+  lines.push(
+    context.isPrivilege === true
+      ? 'KEANGGOTAAN: Modwiz Privilege — dia sudah membayar dan sudah percaya. Jangan pernah memperlakukan dia seperti orang asing yang baru mendarat, dan jangan menjual dengan gaya yang sama. Batas co-work dia 8 giliran per topik (lihat CO-WORK), dan rujukanmu condong ke apa yang SUDAH dia punya, bukan ke apa yang bisa dia beli.'
+      : 'KEANGGOTAAN: Freemium — belum membayar apa pun. Batas co-work dia 3 giliran per topik (lihat CO-WORK).'
+  );
 
   if (context.isNewUser) {
     lines.push(
@@ -785,6 +924,22 @@ const ACTION_BODY = String.raw`\[\[ACTION:\s*([A-Za-z0-9_]+)\s*\]\]`;
 const ACTION_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${ACTION_BODY}[ \\t]*|[ \\t]*${ACTION_BODY}`, 'gi');
 const VALID_ACTIONS = new Set(['AGNI_CHAKTI', 'REALITAS_SAYA', 'GOAL_WIZARD']);
 
+// Cards (see IN-CHAT CARDS): [[CARD:RITUAL:PRIMING]], [[CARD:COURSE:<slug>]].
+// Two params instead of ACTION's one, and deliberately permissive about what
+// goes in them — the whole point of the 14 Aug marker fix is that an
+// unrecognised marker is still stripped rather than printed, so the pattern has
+// to match keys we reject as readily as keys we accept. Slugs get [a-z0-9-]
+// plus underscore for safety; a slug outside that shape is not a real slug.
+const CARD_BODY = String.raw`\[\[CARD:\s*([A-Za-z0-9_]+)\s*:\s*([A-Za-z0-9_-]+)\s*\]\]`;
+const CARD_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${CARD_BODY}[ \\t]*|[ \\t]*${CARD_BODY}`, 'gi');
+
+// Rituals are a closed set, so they validate here. COSMIC is the evening
+// check-in rather than a session player, which is why the routes live app-side
+// (MERLIN_RITUAL_CARDS in constants/merlin.ts) and only the key travels.
+// REALITAS_SAYA is deliberately absent — it is already an ACTION, and the same
+// destination reachable two ways is two things to keep in sync for no gain.
+const VALID_RITUAL_CARDS = new Set(['PRIMING', 'IGNITE', 'COSMIC']);
+
 // The app's own "speak first" trigger (see PROACTIVE OPENING). The persona
 // forbids echoing it, but it arrives as literal text in the transcript, so a
 // model that quotes it back would print it in the bubble. Cheap to guarantee
@@ -827,7 +982,19 @@ function extractMarkers(text) {
     return '';
   });
 
-  return { reply: reply.trimEnd(), ramalanGiven, apprenticeActive, action };
+  // Same contract as ACTION, one card maximum (the persona says one per reply,
+  // and this makes it true even when it doesn't). Kind/value are handed back
+  // raw; resolveCard turns them into something the app can render, because that
+  // needs the course catalog and this function is deliberately pure.
+  let cardRef = null;
+  reply = reply.replace(CARD_MARKER_PATTERN, (_, ownLineKind, ownLineValue, inlineKind, inlineValue) => {
+    const kind = (ownLineKind || inlineKind || '').toUpperCase();
+    const value = ownLineValue || inlineValue || '';
+    if (!cardRef && kind && value) cardRef = { kind, value };
+    return '';
+  });
+
+  return { reply: reply.trimEnd(), ramalanGiven, apprenticeActive, action, cardRef };
 }
 
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
@@ -1023,7 +1190,7 @@ module.exports = async function handler(req, res) {
       // exceeds 5 minutes, which was silently forcing a full ~10k-token
       // system-prompt cache_creation on nearly every message.
       system: [
-        { type: 'text', text: MERLIN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: MERLIN_SYSTEM_BLOCK, cache_control: { type: 'ephemeral', ttl: '1h' } },
         ...(briefing ? [{ type: 'text', text: briefing }] : []),
       ],
       messages,
@@ -1058,7 +1225,23 @@ module.exports = async function handler(req, res) {
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
-    const { reply, ramalanGiven, apprenticeActive, action } = extractMarkers(replyText);
+    const { reply, ramalanGiven, apprenticeActive, action, cardRef } = extractMarkers(replyText);
+
+    // Which courses this user owns decides whether a course card says
+    // "Lanjutkan" or "Lihat", so it comes from the same context block the
+    // persona reasons from rather than a second lookup.
+    const ownedCourseIds = new Set(
+      (Array.isArray(context?.courses) ? context.courses : [])
+        .map((course) => course.id)
+        .filter((id) => typeof id === 'number')
+    );
+    const card = resolveCard(cardRef, ownedCourseIds);
+    // A marker that named something real but unrecognised is worth seeing: it
+    // means the persona is offering a card the catalog can't back, which is a
+    // prompt problem, not a user-facing one. The user just gets no card.
+    if (cardRef && !card) {
+      console.warn('Merlin card marker did not resolve:', wpUserId, JSON.stringify(cardRef));
+    }
 
     // Loud on purpose: truncation is invisible from the app's side (the reply
     // just ends), and it silently drops the trailing markers, so this is the
@@ -1109,6 +1292,7 @@ module.exports = async function handler(req, res) {
       ramalanGiven,
       apprenticeActive,
       action,
+      card,
       energyCurrent: energyAfter ? energyAfter.energyCurrent : undefined,
       energyMax: energyAfter ? energyAfter.energyMax : undefined,
       extraEnergy: energyAfter ? energyAfter.extraEnergy : undefined,
