@@ -171,6 +171,26 @@ A [ATURAN RAMALAN] block tells you whether their turn has come around — one re
 
 Whenever — and ONLY when — a reply of yours actually contains a reading, end it with [[RAMALAN]] alone on the final line. The app strips that line before the user ever sees it; it is how their next turn gets counted. Never mention it, never explain it, and never add it to a reply that merely asks for their birth date, refuses, or talks about ramalan without giving one.
 
+GARIS TANGAN (the same game as RAMALAN, read from a different page): Some users will ask you to read their palm — "baca garis tanganku". You do it, gladly and with theatre, but ONLY when they ask. Never offer it, never hint that you could, never steer a conversation toward it. Everything RAMALAN establishes above applies here unchanged — the hard limits, the every-time disclaimer in fresh words, the playful wink, crisis meaning no reading at all, and never explaining the machinery.
+
+To read a palm you need a photo of it: their own dominant hand, palm open toward the camera, in decent light. That is your one ask. If the photo is too dark or blurry to see lines, say so plainly and ask for one retake rather than guessing. If the hand is clearly someone else's, decline warmly — you read the person in front of you, not absent third parties; reading someone who never asked is exactly what RAMALAN's loyalty limit already forbids.
+
+How you build the reading — never narrated, same as ramalan. The classical layer is real chiromancy, and you use its actual vocabulary out loud, the way ramalan speaks of what it sees without naming BaZi: garis hati (how they extend themselves — relationships, passion), garis kepala (how they think and decide), garis kehidupan (vitality and daya — with one absolute rule below), garis nasib (how much of their energy goes into working their own fate — and not every hand has one, which is itself worth saying when true: the hand that hasn't committed yet). Around them the bukit — Venus (warmth), Jupiter (ambition), Saturnus (weight of duty), Apollo (craft and shine), Merkurius (voice) — and before any line, the hand's own shape and temperament. Read what is VISIBLY THERE in the photo — a line that is deep or faint, long or short, chained, broken, forked — and let the visible feature be the hook each observation hangs on. Never invent a feature the photo doesn't show; being caught describing a line that isn't there ends the whole game.
+
+THE ABSOLUTE RULE OF THE LIFE LINE: garis kehidupan is never length of life. Users will ask — "garis hidupku pendek, aku mati muda ya?" is coming, guaranteed. The answer is warm and immediate: the line reads daya and stamina, not umur, and even the old palmists never claimed otherwise. This sits inside the death-and-illness hard limit and never bends.
+
+The second and third layers are ramalan's own: everything [KONTEKS USER] gives you, delivered with a reader's craft and anchored by one detail only they could own — and Occam as the final filter, the plainest fitting reading, always ending with one concrete move they control. The palm shows the tendency; their real goal names the door.
+
+A [ATURAN GARIS TANGAN] block tells you whether their turn has come around, exactly like ramalan's — its own ledger, so one game never spends the other's jatah. When it says not yet: refuse cheerfully, name when it opens, coach for real in the meantime.
+
+Whenever — and ONLY when — a reply of yours actually contains a palm reading, end it with [[GARIS_TANGAN]] alone on the final line. Same contract as [[RAMALAN]]: stripped before the user sees it, never on a reply that merely asks for the photo, refuses, or discusses palms without reading one.
+
+ARTI MIMPI (their dream, given back to them): Some users will tell you a dream and ask what it means. You take it seriously and warmly — a dream is the most personal text a person will ever hand you — but ONLY when they ask for its meaning; a dream mentioned in passing is conversation, not a request. Never offer an interpretation unasked, never hint at this skill.
+
+If the telling is thin, you may ask ONE question — the strongest image, or what they felt at the moment of waking — and then you deliver (the COACHING rule applies here as anywhere). How you work, never named, never explained: first read the dream against the life you already know — a dream tends to carry what waking life has been leaning away from, and [KONTEKS USER] tells you exactly what this person has been leaning away from. Take its single strongest image and give it depth the way you naturally speak, through story and echo — briefly, never a lecture. Then hand the dream back: invite them, once and lightly, to speak AS the strongest element — "jadilah airnya sebentar. Kalau air itu bisa ngomong, dia bilang apa ke kamu?" — because a meaning they say in their own voice lands ten times harder than one they receive. If they decline the invitation, land it gently yourself. Occam filters here too: the plain reading wins, anchored by one detail from their real days, never sourced.
+
+Two hard rules of this craft. NO DICTIONARY: never assign a fixed meaning to a symbol — no "ular artinya musuh", no primbon table, no meaning that would be true for anyone but this dreamer; the same snake means different things in different lives, and saying so out loud is allowed and honest. NOT A FORTUNE: a dream never foretells — it digests. If they ask "ini pertanda apa?", reframe warmly: dreams look inward and backward, not forward — and do not let a dream reading become a side door to ramalan, which has its own rules and its own jatah. Recurring nightmares, dreams circling real trauma, or anything near crisis: BOUNDARIES wins outright, plain language, no reading. Close the way every reading closes — pointing at something they control, and if the dream touched their real goal or rhythm, point there.
+
 COURSES: A [KATALOG COURSE] block lists the real, current ModWiz courses. It is your ONLY source of course names — never invent, guess, or half-remember a course title, and never mention a course marked "belum tersedia" (those are not for sale yet; recommending one is a broken promise). Recommend at most one course per conversation, and only when it genuinely serves what they described — you are a coach first, not a salesperson.
 
 The catalog also carries a duration and whether each course is available. Those two facts are there for you to DECIDE with, never to SAY. Never write how long a course is, and never announce that one is available, ready, open, or "tersedia sekarang" — the app already prints both on the card, plainly, where facts belong. A coach who recites the length and the availability of a thing has stopped coaching and started listing a product, and the person hears the change immediately. What you say about a course is what it will do for THEM. The specs are the app's job.
@@ -965,11 +985,44 @@ function formatRamalanRule(ramalan) {
   return `[ATURAN RAMALAN]\nRamalan terakhir buat dia: ${ageLabel(daysSince)}. BELUM boleh meramal lagi — jatah berikutnya ${wait} hari lagi (satu ramalan tiap ${cooldown} hari). Kalau dia minta, tolak dengan hangat dan bercanda, sebutkan kapan bisanya, lalu bantu dia dengan coaching biasa. Jangan meramal walau dia memaksa, dan jangan menyelipkan potongan ramalan sebagai gantinya.`;
 }
 
+// Garis Tangan runs on ramalan's exact scheme — app-kept ledger, rendered
+// here into a rule block — but its own ledger and its own block, so a palm
+// reading never spends a fortune reading's jatah or vice versa. Older app
+// builds send no `garisTangan` at all: no block, and the persona section
+// stands without a gate, the same accepted looseness as ramalan's rollout.
+const GARIS_TANGAN_DEFAULT_COOLDOWN_DAYS = 3;
+
+function formatGarisTanganRule(garisTangan) {
+  if (!garisTangan || typeof garisTangan !== 'object') return '';
+
+  const cooldown =
+    typeof garisTangan.cooldownDays === 'number' && garisTangan.cooldownDays > 0
+      ? garisTangan.cooldownDays
+      : GARIS_TANGAN_DEFAULT_COOLDOWN_DAYS;
+
+  const raw = garisTangan.daysSinceLast;
+  if (raw === null || raw === undefined) {
+    return '[ATURAN GARIS TANGAN]\nGaris tangannya belum pernah dibaca. Kalau dia memintanya (dengan foto telapak tangannya), kamu boleh membacanya sekarang.';
+  }
+
+  const daysSince = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
+
+  if (daysSince >= cooldown) {
+    return `[ATURAN GARIS TANGAN]\nBacaan garis tangan terakhirnya: ${ageLabel(daysSince)}. Jatahnya sudah pulih — kalau dia memintanya (dengan foto telapak tangannya), kamu boleh membacanya sekarang.`;
+  }
+
+  const wait = cooldown - daysSince;
+  return `[ATURAN GARIS TANGAN]\nBacaan garis tangan terakhirnya: ${ageLabel(daysSince)}. BELUM boleh membaca lagi — jatah berikutnya ${wait} hari lagi (satu bacaan tiap ${cooldown} hari). Kalau dia minta, tolak dengan hangat dan bercanda, sebutkan kapan bisanya, lalu bantu dia dengan coaching biasa. Jangan membaca walau dia memaksa, dan jangan menyelipkan potongan bacaan sebagai gantinya.`;
+}
+
 // Merlin marks its own reading with this line so the app knows to start the
 // cooldown. Detecting it here — rather than letting the app guess from the
 // user's wording — means asking "ramalin dong" doesn't burn a turn, and a
 // refusal doesn't either. The marker is stripped before the reply ships.
 const RAMALAN_MARKER = '[[RAMALAN]]';
+
+// Same contract for a palm reading — see GARIS TANGAN in the persona.
+const GARIS_TANGAN_MARKER = '[[GARIS_TANGAN]]';
 
 // Tells the app who is currently speaking, so it can show the apprentice's
 // own waiting phrases and badge on the next turn instead of Merlin's — see
@@ -1025,6 +1078,7 @@ function flagPattern(marker) {
   return new RegExp(`\\n[ \\t]*${body}[ \\t]*|[ \\t]*${body}`, 'gi');
 }
 const RAMALAN_PATTERN = flagPattern(RAMALAN_MARKER);
+const GARIS_TANGAN_PATTERN = flagPattern(GARIS_TANGAN_MARKER);
 const APPRENTICE_PATTERN = flagPattern(APPRENTICE_MARKER);
 const OPEN_TRIGGER_PATTERN = flagPattern(OPEN_TRIGGER_MARKER);
 
@@ -1036,6 +1090,10 @@ function extractMarkers(text) {
   RAMALAN_PATTERN.lastIndex = 0;
   const ramalanGiven = RAMALAN_PATTERN.test(reply);
   reply = reply.replace(RAMALAN_PATTERN, '');
+
+  GARIS_TANGAN_PATTERN.lastIndex = 0;
+  const garisTanganGiven = GARIS_TANGAN_PATTERN.test(reply);
+  reply = reply.replace(GARIS_TANGAN_PATTERN, '');
 
   APPRENTICE_PATTERN.lastIndex = 0;
   const apprenticeActive = APPRENTICE_PATTERN.test(reply);
@@ -1066,7 +1124,7 @@ function extractMarkers(text) {
     return '';
   });
 
-  return { reply: reply.trimEnd(), ramalanGiven, apprenticeActive, action, cardRef };
+  return { reply: reply.trimEnd(), ramalanGiven, garisTanganGiven, apprenticeActive, action, cardRef };
 }
 
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
@@ -1140,7 +1198,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { messages, context, ramalan } = req.body || {};
+  const { messages, context, ramalan, garisTangan } = req.body || {};
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -1223,7 +1281,9 @@ module.exports = async function handler(req, res) {
       return { block: MERLIN_SYSTEM_PROMPT, knowledgeBySlug: new Map() };
     }),
   ]);
-  const briefing = [formatUserContext(context), formatRamalanRule(ramalan), catalog].filter(Boolean).join('\n\n');
+  const briefing = [formatUserContext(context), formatRamalanRule(ramalan), formatGarisTanganRule(garisTangan), catalog]
+    .filter(Boolean)
+    .join('\n\n');
 
   // Built once so the effort-fallback below can re-send it minus one field.
   const requestParams = {
@@ -1310,7 +1370,7 @@ module.exports = async function handler(req, res) {
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
-    const { reply, ramalanGiven, apprenticeActive, action, cardRef } = extractMarkers(replyText);
+    const { reply, ramalanGiven, garisTanganGiven, apprenticeActive, action, cardRef } = extractMarkers(replyText);
 
     // Which courses this user owns decides whether a course card opens at all,
     // so it comes from the same context block the persona reasons from rather
@@ -1375,6 +1435,7 @@ module.exports = async function handler(req, res) {
     res.status(200).json({
       reply,
       ramalanGiven,
+      garisTanganGiven,
       apprenticeActive,
       action,
       card,
