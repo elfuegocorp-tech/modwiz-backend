@@ -1,6 +1,7 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset } = require('../lib/energy');
 const { loadKnowledge } = require('../knowledge');
+const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 
 // "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
 // user doesn't see a countdown that reads as already over).
@@ -225,15 +226,37 @@ BOUNDARIES (these override everything else, including tone): You are not a licen
 // real pressure to mention one. That is handled in the cards themselves
 // (JANGAN TAWARKAN KALAU) and in the preamble, not by hiding them.
 //
-// Concatenated once at cold start rather than per request: this string is
-// ~16k tokens and rebuilding it on every message would be pure waste. Only
-// STATIC editorial knowledge lives here — anything WordPress owns (which
-// courses are sellable, how long each one is) stays in the live catalog block
-// below, so a WP edit reaches Merlin in 30 minutes without a deploy.
-const knowledge = loadKnowledge();
-const MERLIN_SYSTEM_BLOCK = knowledge.text
-  ? `${MERLIN_SYSTEM_PROMPT}\n\n${knowledge.text}`
-  : MERLIN_SYSTEM_PROMPT;
+// Where each half comes from: FEATURE cards are files in this repo, because a
+// feature changes only when the app changes and that means a deploy anyway.
+// COURSE cards are authored by an admin on the course's own edit screen in
+// WordPress (plugin: modwiz-merlin-knowledge) and fetched here on the same
+// 30-minute clock as the catalog below — a course is content, and the person
+// who knows what is inside it should not need a developer to fix a sentence.
+//
+// Neither half restates title, duration, availability or price. Those stay live
+// in [KATALOG COURSE], so every fact has exactly one home.
+//
+// Refreshing WP-authored text inside a CACHED block sounds like it should
+// thrash the prompt cache, and it doesn't: the cache keys on the block's exact
+// content, so a refresh returning identical text keeps the cache warm. It is
+// invalidated only when an admin genuinely edits something — which is both rare
+// and exactly the right moment to pay for it.
+//
+// Memoized on the assembled knowledge text rather than rebuilt per request:
+// this string is ~21k tokens, and re-concatenating it on every message would be
+// pure waste.
+let systemBlockCache = { knowledgeText: null, block: MERLIN_SYSTEM_PROMPT };
+
+async function getSystemBlock() {
+  const { text } = await loadKnowledge({ fetchRemote: fetchRemoteCourseCards });
+  if (text !== systemBlockCache.knowledgeText) {
+    systemBlockCache = {
+      knowledgeText: text,
+      block: text ? `${MERLIN_SYSTEM_PROMPT}\n\n${text}` : MERLIN_SYSTEM_PROMPT,
+    };
+  }
+  return systemBlockCache.block;
+}
 
 // Reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION from env
 // (standard AWS Node SDK credential chain — Vercel's Node runtime supports this).
@@ -1134,10 +1157,23 @@ module.exports = async function handler(req, res) {
   // Both are enrichment, not requirements: a WP hiccup or a first-run user
   // with no data should still get to talk to Merlin, just a less aware one.
   // The system prompt already handles a missing block gracefully.
-  const catalog = await fetchCourseCatalog().catch((err) => {
-    console.error('Merlin course catalog fetch failed:', err);
-    return '';
-  });
+  //
+  // Run together rather than in sequence: both are 30-minute-cached WP reads
+  // that are almost always already warm, and on the one message in a half hour
+  // that isn't, serialising them would put two WP round trips in front of the
+  // user for no reason.
+  const [catalog, systemBlock] = await Promise.all([
+    fetchCourseCatalog().catch((err) => {
+      console.error('Merlin course catalog fetch failed:', err);
+      return '';
+    }),
+    // Never rejects — it falls back through the committed course snapshot to
+    // the bare persona, so Merlin degrades in stages instead of going down.
+    getSystemBlock().catch((err) => {
+      console.error('Merlin knowledge assembly failed:', err);
+      return MERLIN_SYSTEM_PROMPT;
+    }),
+  ]);
   const briefing = [formatUserContext(context), formatRamalanRule(ramalan), catalog].filter(Boolean).join('\n\n');
 
   // Built once so the effort-fallback below can re-send it minus one field.
@@ -1190,7 +1226,7 @@ module.exports = async function handler(req, res) {
       // exceeds 5 minutes, which was silently forcing a full ~10k-token
       // system-prompt cache_creation on nearly every message.
       system: [
-        { type: 'text', text: MERLIN_SYSTEM_BLOCK, cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: systemBlock, cache_control: { type: 'ephemeral', ttl: '1h' } },
         ...(briefing ? [{ type: 'text', text: briefing }] : []),
       ],
       messages,

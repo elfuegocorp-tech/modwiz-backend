@@ -6,5 +6,10 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.32.0",
     "@supabase/supabase-js": "^2.45.0"
+  },
+  "scripts": {
+    "knowledge:audit": "node scripts/knowledge-audit.js",
+    "knowledge:pull": "node scripts/knowledge-pull.js",
+    "knowledge:seed": "node scripts/knowledge-seed.js"
   }
 }
