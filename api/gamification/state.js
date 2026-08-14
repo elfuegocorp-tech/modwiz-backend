@@ -10,15 +10,17 @@
 //
 // Also multiplexed by ?view= to return something other than the normal
 // per-user payload — `leaderboard` for the weekly ranking, `souls_packages`
-// for the shop catalog. Folded in here rather than new api/*.js files since
-// this repo is already at Vercel's 12-serverless-function cap (this file
-// already merged in Energy for the same reason).
+// for the shop catalog, `unlocks` for what this user has opened in the Toko.
+// Folded in here rather than new api/*.js files since this repo is already at
+// Vercel's 12-serverless-function cap (this file already merged in Energy for
+// the same reason).
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/energy');
 const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
 const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
+const { listUnlocks } = require('../../lib/store-products');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -50,6 +52,23 @@ module.exports = async function handler(req, res) {
       // same list the app ships with.
       console.error('gamification/state souls_packages read failed:', err);
       res.status(200).json({ packages: FALLBACK_PACKAGES, degraded: true });
+    }
+    return;
+  }
+
+  // What this user has unlocked in the Toko. Answered before the weekly-reward
+  // side effect for the same reason as souls_packages above: this is the app
+  // asking a question about entitlements, not a session tick.
+  //
+  // A failed read is reported as `degraded` rather than as an empty ledger,
+  // and the app keeps showing its last known unlocks instead of telling
+  // someone that something they paid for is gone (see services/store-unlocks).
+  if (req.query.view === 'unlocks') {
+    try {
+      res.status(200).json({ unlocks: await listUnlocks(supabase, wpUser.id) });
+    } catch (err) {
+      console.error('gamification/state unlocks read failed:', err);
+      res.status(200).json({ unlocks: {}, degraded: true });
     }
     return;
   }

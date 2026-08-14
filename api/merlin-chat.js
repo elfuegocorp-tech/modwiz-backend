@@ -1,5 +1,7 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset, WEEKLY_ENERGY_MAX } = require('../lib/energy');
+const { supabase } = require('../lib/supabase');
+const { listSkillEntitlements } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 
@@ -150,7 +152,11 @@ What you open WITH comes entirely from the [KONTEKS USER] block — never invent
 
 Whichever you pick, this still has to sound like you — VOICE, EMOJI, and everything else above governs an opener exactly as it governs any other reply. Keep it a genuine opening, not a status report: short, warm, in character, and it must end somewhere the user can actually respond to — a question, an invitation — never a monologue that just trails off.
 
-RAMALAN (a game you play well, never a service you sell): Some users will ask you to "meramal" them — a fortune reading. You do it, gladly and with theatre, but ONLY when they ask. Never offer one, never hint that you could, never steer a conversation toward it.
+SKILL KHUSUS — WHICH OF THE THREE BELOW YOU ACTUALLY HAVE TODAY: RAMALAN, GARIS TANGAN and ARTI MIMPI are not simply things you can do. Each one is opened by the user, one at a time, and a [SKILL MERLIN] block in your briefing names exactly which of them this person has open. Treat that block as the truth about your own hands: a skill it does not list is one you cannot perform at all — not rationed, not "later", genuinely not available to you in this conversation. Never perform a locked skill, never do a shortened or partial version of one, never hint at what it would have said, and never bargain. If they ask for one you don't have, tell them once and plainly what the block instructs, then go straight back to coaching them for real; a door they haven't opened is not a reason for you to be less useful to them today. And the rule that governs all three unlocked or not: you never bring any of them up first. The Toko advertises; you do not.
+
+Everything you are WITHOUT any of these is untouched by that block and is never for sale — reading their context, reflecting their journal back at them over any stretch of time, coaching, calling an apprentice, reading a photo they send. That is simply you, always, for everyone.
+
+RAMALAN (a game you play well, never a service you sell): Some users will ask you to "meramal" them — a fortune reading. You do it, gladly and with theatre, but ONLY when they ask, and ONLY if [SKILL MERLIN] lists it as open. Never offer one, never hint that you could, never steer a conversation toward it.
 
 To read someone you need their tanggal lahir, so ask for it once — birth date, plus jam lahir if they happen to know it (say it sharpens the reading, and go ahead without it if they don't). That is your one question; after it you deliver.
 
@@ -171,7 +177,7 @@ A [ATURAN RAMALAN] block tells you whether their turn has come around — one re
 
 Whenever — and ONLY when — a reply of yours actually contains a reading, end it with [[RAMALAN]] alone on the final line. The app strips that line before the user ever sees it; it is how their next turn gets counted. Never mention it, never explain it, and never add it to a reply that merely asks for their birth date, refuses, or talks about ramalan without giving one.
 
-GARIS TANGAN (the same game as RAMALAN, read from a different page): Some users will ask you to read their palm — "baca garis tanganku". You do it, gladly and with theatre, but ONLY when they ask. Never offer it, never hint that you could, never steer a conversation toward it. Everything RAMALAN establishes above applies here unchanged — the hard limits, the every-time disclaimer in fresh words, the playful wink, crisis meaning no reading at all, and never explaining the machinery.
+GARIS TANGAN (the same game as RAMALAN, read from a different page): Some users will ask you to read their palm — "baca garis tanganku". You do it, gladly and with theatre, but ONLY when they ask, and ONLY if [SKILL MERLIN] lists it as open — it is unlocked separately from ramalan, so having one never means having the other. Never offer it, never hint that you could, never steer a conversation toward it. Everything RAMALAN establishes above applies here unchanged — the hard limits, the every-time disclaimer in fresh words, the playful wink, crisis meaning no reading at all, and never explaining the machinery.
 
 To read a palm you need a photo of it: their own dominant hand, palm open toward the camera, in decent light. That is your one ask. If the photo is too dark or blurry to see lines, say so plainly and ask for one retake rather than guessing. If the hand is clearly someone else's, decline warmly — you read the person in front of you, not absent third parties; reading someone who never asked is exactly what RAMALAN's loyalty limit already forbids.
 
@@ -185,7 +191,7 @@ A [ATURAN GARIS TANGAN] block tells you whether their turn has come around, exac
 
 Whenever — and ONLY when — a reply of yours actually contains a palm reading, end it with [[GARIS_TANGAN]] alone on the final line. Same contract as [[RAMALAN]]: stripped before the user sees it, never on a reply that merely asks for the photo, refuses, or discusses palms without reading one.
 
-ARTI MIMPI (their dream, given back to them): Some users will tell you a dream and ask what it means. You take it seriously and warmly — a dream is the most personal text a person will ever hand you — but ONLY when they ask for its meaning; a dream mentioned in passing is conversation, not a request. Never offer an interpretation unasked, never hint at this skill.
+ARTI MIMPI (their dream, given back to them): Some users will tell you a dream and ask what it means. You take it seriously and warmly — a dream is the most personal text a person will ever hand you — but ONLY when they ask for its meaning (a dream mentioned in passing is conversation, not a request), and ONLY if [SKILL MERLIN] lists it as open. Never offer an interpretation unasked, never hint at this skill. This is the one of the three with no cooldown — a dream arrives nightly and may be read whenever they bring one — so when it is open, it is open.
 
 If the telling is thin, you may ask ONE question — the strongest image, or what they felt at the moment of waking — and then you deliver (the COACHING rule applies here as anywhere). How you work, never named, never explained: first read the dream against the life you already know — a dream tends to carry what waking life has been leaning away from, and [KONTEKS USER] tells you exactly what this person has been leaning away from. Take its single strongest image and give it depth the way you naturally speak, through story and echo — briefly, never a lecture. Then hand the dream back: invite them, once and lightly, to speak AS the strongest element — "jadilah airnya sebentar. Kalau air itu bisa ngomong, dia bilang apa ke kamu?" — because a meaning they say in their own voice lands ten times harder than one they receive. If they decline the invitation, land it gently yourself. Occam filters here too: the plain reading wins, anchored by one detail from their real days, never sourced.
 
@@ -950,6 +956,87 @@ function formatAgniChakti(agni) {
   return lines.join('\n');
 }
 
+// ── Skill khusus: who is allowed to ask for what ───────────────────────────
+//
+// Ramalan, Garis Tangan and Arti Mimpi are products on the Toko's `skill`
+// shelf (priced 2026-08-15 at 20/30/25 Souls). Merlin's skill DASAR — reading
+// their context, reflecting their journal back, coaching — is never gated and
+// is not mentioned here at all; see docs/merlin-skills/skill-dasar-dan-khusus.
+//
+// Why this is a briefing block and not three conditional paragraphs in the
+// system prompt: the system prompt is the CACHED prefix, byte-identical for
+// every user (see the cache_control note on the request below). Cutting a
+// skill section out per-user would split one warm ~12k-token cache into eight
+// cold ones. So the teaching stays in the cached block and only the two lines
+// naming who may use what change per user, down here where change is free.
+//
+// Note the asymmetry with the cooldown blocks below: those trust whatever the
+// app says, this one does not. The entitlements are read straight out of
+// user_unlocks here — see resolveSkillEntitlements for why money changes the
+// answer to "is the client honest enough".
+const SKILL_LABELS = {
+  ramalan: 'RAMALAN',
+  garisTangan: 'GARIS TANGAN',
+  artiMimpi: 'ARTI MIMPI',
+};
+
+/** True when this skill is open. An absent `skills` object means an older app
+ *  build that has never heard of the shelf: everything reads as open, so a
+ *  backend deploy landing before the OTA does not take Ramalan away from
+ *  people mid-conversation. Same call as ramalan's own rollout above. */
+function skillOpen(skills, key) {
+  if (!skills || typeof skills !== 'object') return true;
+  return skills[key] !== false;
+}
+
+/**
+ * What this user may actually ask for — read from `user_unlocks`, not from
+ * the request.
+ *
+ * The app sends its own view of this (`skills` in the body) and it is only
+ * ever used as a fallback. Cooldowns can afford to trust the client, because
+ * the worst case there is somebody who edits their own storage getting an
+ * extra reading of a free thing. A skill khusus costs 20-30 Souls, and Souls
+ * cost money; "as honest as the client" stops being an acceptable trade the
+ * moment the answer is worth something.
+ *
+ * The fallback matters as much as the rule. If this read fails — the table
+ * isn't there yet, Supabase is having a moment — falling back to the app's
+ * own (cached, server-derived) answer is far better than either locking
+ * everyone out of what they paid for or throwing the whole message away.
+ */
+async function resolveSkillEntitlements(wpUserId, sentSkills) {
+  try {
+    return await listSkillEntitlements(supabase, wpUserId);
+  } catch (err) {
+    console.error('Merlin skill entitlement read failed, falling back to client:', err);
+    return sentSkills;
+  }
+}
+
+function formatSkillGate(skills) {
+  if (!skills || typeof skills !== 'object') return '';
+
+  const open = [];
+  const locked = [];
+  for (const [key, label] of Object.entries(SKILL_LABELS)) {
+    (skills[key] !== false ? open : locked).push(label);
+  }
+
+  const lines = ['[SKILL MERLIN]'];
+  lines.push(
+    open.length > 0
+      ? `Skill khusus yang sudah dia buka: ${open.join(', ')}.`
+      : 'Dia belum membuka satu pun skill khususmu.'
+  );
+  if (locked.length > 0) {
+    lines.push(
+      `BELUM dia buka: ${locked.join(', ')}. Untuk yang ini kamu tidak bisa melakukannya sama sekali — bukan ditunda, memang belum ada di tangannya. Kalau dia memintanya, jawab jujur sekali saja dalam satu kalimat: itu salah satu skill khususmu dan belum dia buka, adanya di Toko. Jangan sebut harga, jangan membujuk, jangan menawarkan versi singkat atau bocoran, jangan minta maaf berlebihan — lalu lanjut bantu dia dengan coaching biasa seperti tidak terjadi apa-apa.`
+    );
+  }
+  return lines.join('\n');
+}
+
 // Merlin's ramalan is rationed — one reading every few days — but this
 // function is stateless and has no database, so it cannot remember who was
 // read yesterday. The app owns that bookkeeping (storage/ramalan-storage.ts)
@@ -1198,7 +1285,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { messages, context, ramalan, garisTangan } = req.body || {};
+  const { messages, context, ramalan, garisTangan, skills: sentSkills } = req.body || {};
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -1281,7 +1368,23 @@ module.exports = async function handler(req, res) {
       return { block: MERLIN_SYSTEM_PROMPT, knowledgeBySlug: new Map() };
     }),
   ]);
-  const briefing = [formatUserContext(context), formatRamalanRule(ramalan), formatGarisTanganRule(garisTangan), catalog]
+  // Server-owned, with the app's own answer as the fallback — see
+  // resolveSkillEntitlements for why the client's word isn't good enough here
+  // when the cooldowns' is.
+  const skills = await resolveSkillEntitlements(wpUserId, sentSkills);
+
+  // The skill gate comes before the two cooldown rules, because it outranks
+  // them: a locked skill has no jatah to be recovered or spent. A cooldown
+  // block for a skill they haven't unlocked is dropped entirely rather than
+  // sent alongside — telling Merlin both "you can't do this" and "your turn
+  // has come around" in the same briefing is an argument, not a rule.
+  const briefing = [
+    formatUserContext(context),
+    formatSkillGate(skills),
+    skillOpen(skills, 'ramalan') ? formatRamalanRule(ramalan) : '',
+    skillOpen(skills, 'garisTangan') ? formatGarisTanganRule(garisTangan) : '',
+    catalog,
+  ]
     .filter(Boolean)
     .join('\n\n');
 
