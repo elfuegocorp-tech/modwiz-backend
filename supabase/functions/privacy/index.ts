@@ -36,18 +36,37 @@ async function ensureProfile(wpUserId: number) {
 async function readState(user: WpUser) {
   await ensureProfile(user.id);
 
-  const [{ data: profile, error: profileError }, { data: privilege, error: privilegeError }] =
-    await Promise.all([
-      supabase
-        .from('profiles')
-        .select('ai_context_consent_at, ai_context_consent_version, super_memory_enabled')
-        .eq('wp_user_id', user.id)
-        .maybeSingle(),
-      supabase.rpc('is_privilege', { p_wp_user_id: user.id }),
-    ]);
+  const [
+    { data: profile, error: profileError },
+    { data: privilege, error: privilegeError },
+    { data: liveEntitlement, error: entitlementError },
+  ] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('ai_context_consent_at, ai_context_consent_version, super_memory_enabled')
+      .eq('wp_user_id', user.id)
+      .maybeSingle(),
+    supabase.rpc('is_privilege', { p_wp_user_id: user.id }),
+    // Display only — is_privilege() above is still the ONLY gate. This read
+    // exists so the app can print "sejak <date>" on the Privilege card, and it
+    // is deliberately not used to decide anything: entitlements_one_live_per_user_idx
+    // guarantees at most one row here, and the value is discarded below unless
+    // the RPC already said yes.
+    //
+    // started_at of the CURRENT period, not of the user's first ever
+    // entitlement. Someone who lapsed and came back gets the date they came
+    // back — an audit trail's job is not to flatter.
+    supabase
+      .from('entitlements')
+      .select('started_at')
+      .eq('wp_user_id', user.id)
+      .in('status', ['active', 'grace'])
+      .maybeSingle(),
+  ]);
 
   if (profileError) throw profileError;
   if (privilegeError) throw privilegeError;
+  if (entitlementError) throw entitlementError;
 
   const consentAt = profile?.ai_context_consent_at ?? null;
   const consentVersion = profile?.ai_context_consent_version ?? null;
@@ -66,6 +85,11 @@ async function readState(user: WpUser) {
     // silently continuing to sync after their access ended.
     superMemoryEnabled: Boolean(privilege) && Boolean(profile?.super_memory_enabled),
     isPrivilege: Boolean(privilege),
+    // Null for everyone who isn't Privilege right now, so the app never has to
+    // pair this with isPrivilege to know whether it means anything. Gated on
+    // the RPC rather than on the row's own existence: an expired row still has
+    // a started_at, and printing it would tell a lapsed member they're current.
+    privilegeSince: privilege ? (liveEntitlement?.started_at ?? null) : null,
   };
 }
 
