@@ -507,6 +507,35 @@ function formatUserContext(context) {
     );
   }
 
+  // Nights the user DECLARED in their own words on the evening ritual — the
+  // "★ ada yang berat hari ini?" slide and the gratitude they chose to mark.
+  // The app has been building, dating and sending these on every single
+  // message since the pain-reflection star shipped; this function never read
+  // them, so Merlin has never once seen the most direct thing this person
+  // ever wrote about a hard day. Dated like everything else here, and hedged
+  // in the same direction: a heavy night is the user's own answer, but it is
+  // still a PAST night, and ambushing someone with it is exactly the failure
+  // TIME above exists to prevent.
+  const renderNights = (nights) =>
+    nights
+      .map((night) => `${night.date} (${ageLabel(night.daysAgo) ?? UNDATED}): "${night.text}"`)
+      .join('; ');
+
+  const heavyNights = Array.isArray(reality.heavyNights) ? reality.heavyNights : [];
+  if (heavyNights.length) {
+    lines.push(
+      `Malam yang dia sendiri tandai BERAT, terbaru dulu — ini kata-katanya sendiri, bukan kesimpulan kita: ${renderNights(heavyNights)}`,
+      'Ini yang paling jujur yang pernah dia tulis. Jangan diungkit begitu saja di awal obrolan seolah baru terjadi, dan jangan dijadikan bahan ceramah — pakai untuk mengerti dia. Kalau salah satunya memang hari ini atau kemarin, itu justru layak disebut.'
+    );
+  }
+
+  const gratefulNights = Array.isArray(reality.gratefulNights) ? reality.gratefulNights : [];
+  if (gratefulNights.length) {
+    lines.push(
+      `Yang dia syukuri dan tandai sendiri, terbaru dulu: ${renderNights(gratefulNights)}`
+    );
+  }
+
   // PRIMING's 3 goals for today (Ritual Pagi), optionally checked off by
   // COSMIC (Ritual Malam). null means he hasn't done PRIMING yet today —
   // worth naming so you can nudge him toward it by name, same as any other
@@ -734,24 +763,63 @@ const APPRENTICE_MARKER = '[[APPRENTICE]]';
 // the IN-APP ACTIONS addendum above. Whitelisted rather than trusted as
 // free text: a typo'd or hallucinated key must silently become no button,
 // never a broken deep link.
-const ACTION_MARKER_PATTERN = /\[\[ACTION:([A-Z_]+)\]\]/;
+// Matched permissively and stripped unconditionally; only the key is
+// whitelisted. The old pattern was strict (`[A-Z_]+`, non-global) AND only
+// stripped on a whitelist hit, so the two failures it was meant to prevent
+// both shipped to the user as raw text: the persona names far more features
+// than it whitelists — Ritual Pagi, IGNITE, COSMIC — so `[[ACTION:PRIMING]]`
+// is an entirely reasonable thing for Merlin to write, and it landed in the
+// bubble verbatim. Same for a lowercase or duplicated marker. A hallucinated
+// key must become no button; it must never become visible text.
+// Two alternatives, and the order matters. A marker on its own line (the
+// normal case) takes the newline in front of it with it, so no blank line is
+// left behind. A marker inline in a sentence only takes the space before it,
+// so stripping it doesn't run the two surrounding words together.
+const ACTION_BODY = String.raw`\[\[ACTION:\s*([A-Za-z0-9_]+)\s*\]\]`;
+const ACTION_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${ACTION_BODY}[ \\t]*|[ \\t]*${ACTION_BODY}`, 'gi');
 const VALID_ACTIONS = new Set(['AGNI_CHAKTI', 'REALITAS_SAYA', 'GOAL_WIZARD']);
+
+// The app's own "speak first" trigger (see PROACTIVE OPENING). The persona
+// forbids echoing it, but it arrives as literal text in the transcript, so a
+// model that quotes it back would print it in the bubble. Cheap to guarantee
+// here instead of trusting an instruction.
+const OPEN_TRIGGER_MARKER = '[[MERLIN_OPEN_CONVERSATION]]';
+
+// Same shape for the flag markers: match case-insensitively and take the
+// newline in front, so the marker's own line disappears with it.
+function flagPattern(marker) {
+  const body = marker.replace(/[[\]]/g, '\\$&');
+  return new RegExp(`\\n[ \\t]*${body}[ \\t]*|[ \\t]*${body}`, 'gi');
+}
+const RAMALAN_PATTERN = flagPattern(RAMALAN_MARKER);
+const APPRENTICE_PATTERN = flagPattern(APPRENTICE_MARKER);
+const OPEN_TRIGGER_PATTERN = flagPattern(OPEN_TRIGGER_MARKER);
 
 function extractMarkers(text) {
   let reply = text;
 
-  const ramalanGiven = reply.includes(RAMALAN_MARKER);
-  if (ramalanGiven) reply = reply.split(RAMALAN_MARKER).join('');
+  // .test() on a /g regex advances lastIndex, so each one gets reset before
+  // use — a stateful shared regex would skip markers on later replies.
+  RAMALAN_PATTERN.lastIndex = 0;
+  const ramalanGiven = RAMALAN_PATTERN.test(reply);
+  reply = reply.replace(RAMALAN_PATTERN, '');
 
-  const apprenticeActive = reply.includes(APPRENTICE_MARKER);
-  if (apprenticeActive) reply = reply.split(APPRENTICE_MARKER).join('');
+  APPRENTICE_PATTERN.lastIndex = 0;
+  const apprenticeActive = APPRENTICE_PATTERN.test(reply);
+  reply = reply.replace(APPRENTICE_PATTERN, '');
 
+  reply = reply.replace(OPEN_TRIGGER_PATTERN, '');
+
+  // First recognised key wins (the persona allows at most one); every marker
+  // is removed either way.
   let action = null;
-  const actionMatch = reply.match(ACTION_MARKER_PATTERN);
-  if (actionMatch && VALID_ACTIONS.has(actionMatch[1])) {
-    action = actionMatch[1];
-    reply = reply.split(actionMatch[0]).join('');
-  }
+  // Two capture groups because the pattern has two alternatives; exactly one
+  // of them is set on any given match.
+  reply = reply.replace(ACTION_MARKER_PATTERN, (_, ownLineKey, inlineKey) => {
+    const upper = (ownLineKey || inlineKey).toUpperCase();
+    if (!action && VALID_ACTIONS.has(upper)) action = upper;
+    return '';
+  });
 
   return { reply: reply.trimEnd(), ramalanGiven, apprenticeActive, action };
 }
@@ -902,7 +970,16 @@ module.exports = async function handler(req, res) {
   try {
     const response = await anthropic.messages.create({
       model: MERLIN_BEDROCK_MODEL,
-      max_tokens: 2048,
+      // Headroom, not a target: output tokens are billed (and charged as
+      // Energy) on what's actually generated, so a higher ceiling costs
+      // nothing until a reply genuinely needs it. 2048 was close enough to
+      // the long end of Merlin's range — a cinematic apprentice entrance plus
+      // real coaching, or a full ramalan — that hitting it was routine, and
+      // hitting it is worse than a cut-off sentence: every marker Merlin
+      // writes sits on the FINAL line, so a truncated reply silently loses
+      // its apprentice badge and, on a reading, never starts the ramalan
+      // cooldown — letting the user immediately ask for another.
+      max_tokens: 4096,
       // Two blocks on purpose. cache_control marks the end of the cacheable
       // prefix, so the long static persona stays cached across messages
       // while the per-user briefing after it is free to change every turn —
@@ -918,22 +995,54 @@ module.exports = async function handler(req, res) {
       messages,
     });
 
-    const textBlock = response.content.find((block) => block.type === 'text');
-    const { reply, ramalanGiven, apprenticeActive, action } = extractMarkers(textBlock ? textBlock.text : '');
+    // Every text block, not just the first. Today the model returns exactly
+    // one, so this changes nothing — but the moment thinking is switched on
+    // (or the reply comes back split for any other reason), taking only
+    // content[0] silently drops the rest of Merlin's answer, markers and all.
+    const replyText = response.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
+    const { reply, ramalanGiven, apprenticeActive, action } = extractMarkers(replyText);
 
-    // Cost is real regardless of cache hits — charge Energy on total tokens
-    // (input + output), same formula as the Notion Energy design doc.
+    // Loud on purpose: truncation is invisible from the app's side (the reply
+    // just ends), and it silently drops the trailing markers, so this is the
+    // only place it can ever be noticed. If it shows up in the logs, raise
+    // max_tokens above rather than trimming the persona.
+    if (response.stop_reason === 'max_tokens') {
+      console.warn('Merlin reply hit max_tokens — truncated, trailing markers lost:', wpUserId);
+    }
+
+    // Energy is charged on the conversation only — input + output — and
+    // deliberately NOT on cache_creation_input_tokens.
+    //
+    // Writing the ~12.3k-token persona into cache is infrastructure, not
+    // something the user said or asked for, and charging it made the meter
+    // behave in a way no user could predict or control: a cold cache cost ~37
+    // Energy against a 100-Energy window, so opening Merlin three times in a
+    // day burned 93 Energy on cache writes alone and locked the user out
+    // after roughly one real message. That punished exactly the returning,
+    // frequent user the product is trying to create. Merlin's chat is a
+    // marketing surface, not a revenue line — this cost stays on our side.
+    //
+    // cache_read has always been free here. With cache_creation dropped too,
+    // the first message of a session now costs the same as every message
+    // after it, which is the whole point.
+    //
+    // Still logged in full: the real spend hasn't changed, only who absorbs
+    // it, and that number still needs to be watchable in Bedrock.
     const usage = response.usage || {};
-    const totalTokens =
-      (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.output_tokens || 0);
+    const totalTokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
     console.log(
       'Merlin token usage:',
       wpUserId,
       JSON.stringify(usage),
-      'totalTokens:',
+      'chargedTokens:',
       totalTokens,
       'energyCost:',
-      tokensToEnergy(totalTokens)
+      tokensToEnergy(totalTokens),
+      'cacheWriteAbsorbed:',
+      usage.cache_creation_input_tokens || 0
     );
     const energyAfter = await consumeEnergy(wpUserId, tokensToEnergy(totalTokens)).catch((err) => {
       console.error('Merlin energy deduct failed:', err);
