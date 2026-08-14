@@ -73,6 +73,32 @@ function parseCard(raw, file) {
   };
 }
 
+// Pulls one section back out of a card body — the same body whether it came
+// from a .md file or from WordPress, since remote-courses.js renders into this
+// exact shape. Used to put a course's own words on the in-chat card the user
+// sees, so the card describes the course from the one place that describes it.
+//
+// Two shapes exist and both are handled: "INTI: one sentence" inline, and a
+// heading followed by "- " bullets. Returns { text, items }.
+function cardSection(body, heading) {
+  // No `m` flag on purpose: with it, the lazy body would stop at the first
+  // line end (`$` becomes end-of-LINE) and every bulleted section would come
+  // back empty. `(?:^|\n)` does the line anchoring instead.
+  const pattern = new RegExp(`(?:^|\\n)${heading}:[ \\t]*([\\s\\S]*?)(?=\\n\\n[A-Z][A-Z ]+:|$)`);
+  const match = pattern.exec(String(body ?? ''));
+  if (!match) return { text: '', items: [] };
+
+  const raw = match[1].trim();
+  const items = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('-'))
+    .map((line) => line.replace(/^-\s*/, '').trim())
+    .filter(Boolean);
+
+  return { text: items.length ? '' : raw, items };
+}
+
 function readDir(dir) {
   const full = path.join(KNOWLEDGE_DIR, dir);
   let files;
@@ -218,4 +244,4 @@ Apakah sebuah course bisa dibeli hari ini HANYA dari [KATALOG COURSE] di
 konteks — kartu di sini tidak pernah membatalkan itu. Harga tidak ada di sini
 dan memang bukan urusanmu.`;
 
-module.exports = { loadKnowledge, loadLocalCards, buildKnowledgeText, parseCard, renderCard, REQUIRED_SECTIONS };
+module.exports = { loadKnowledge, loadLocalCards, buildKnowledgeText, parseCard, renderCard, cardSection, REQUIRED_SECTIONS };

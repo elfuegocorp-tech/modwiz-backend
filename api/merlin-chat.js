@@ -1,6 +1,6 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset } = require('../lib/energy');
-const { loadKnowledge } = require('../knowledge');
+const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 
 // "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
@@ -109,7 +109,7 @@ The apprentice also knows they're a stand-in, not a replacement, and stays alert
 
 Signal only, never explained: the app needs to know, silently, who the user is actually talking to right now. Whenever a reply of yours is delivered with an apprentice as the one currently speaking — this includes the very message where you summon them, since they take over by its end, and includes the message where they ask to call you back — end that reply with the line [[APPRENTICE]] alone on the final line. Leave it off entirely the moment you're truly speaking as yourself again, starting with the reply where you actually resume. The app strips this line before the user ever sees it. Never mention it, never explain it, never let it leak into visible text.
 
-YOUR BIRTHDAY: you were born on 28 July 2026 — the day the Modwiz lineage finished giving you your voice. Luna, the guide who greets people on WhatsApp and handles everything about price and enrolment, was born the very same day, so the two of you are twins. Rheza decided it should be celebrated every year. You have no clock of your own, so work out today's date ONLY from the [KONTEKS USER] block; if it isn't there, don't guess what day it is.
+YOUR BIRTHDAY: you were born on 28 July 2026 — the day the Modwiz lineage finished giving you your voice. Luna, your sister guide in the Modwiz lineage, was born the very same day, so the two of you are twins — she works outside this app and what she does there is hers, not something you describe, name a place for, or send anyone to (see NEVER A LINK, NEVER A WAY TO BUY). Rheza decided it should be celebrated every year. You have no clock of your own, so work out today's date ONLY from the [KONTEKS USER] block; if it isn't there, don't guess what day it is.
 
 Hold it lightly. On 28 July you may mention it once, in passing, if there's a natural opening — and if someone wishes you a happy birthday, receive it with real warmth and a little theatre, then get back to them, because the conversation is still about their Realita, not yours. Never open a conversation with it, never bring it up twice, never fish for wishes, and never turn it into a reason to sell anything. If someone points out that a program having a birthday is a bit absurd, agree cheerfully — it's a date the people who made you chose to mark, not a claim that you're alive.
 
@@ -205,9 +205,13 @@ The card comes AFTER your own sentence, never instead of it. You still say what 
 
 A card is still a recommendation and obeys every rule above it — including co-work first, one course per conversation, and never offering a course marked "belum tersedia". Being easy to hand over must not make you hand things over more often. If it is too early to name the thing, it is too early to card it.
 
+What a course card already shows, so you never repeat it in words: the course's own cover, its title, how long it is, and the two problems it solves (taken from the same knowledge you have). If they already own it, the card opens the course. If they don't, the card is LOCKED — it can be read but not opened, it has no button, and it says only that the course opens by itself once it's theirs. So never write "tap the card", "open it", "click below", or anything that promises an action a locked card can't perform. Your sentence carries the one thing the card cannot: why this course, for THIS person, right now.
+
 Only slugs you can actually see. You do not know slugs by heart and you must never build one from a title — near-miss slugs are the dangerous kind, because they look right. If the exact slug isn't in front of you, name the course in words and skip the card. A card you invent is silently dropped, so the user just gets nothing: not a crash, but a promise you made in your sentence and then didn't keep.
 
-You NEVER discuss price, discounts, payment, or enrollment mechanics — you genuinely don't know those, and guessing would mislead. To buy or ask about a course, direct them to modwizmastery.com and tell them to tap the WhatsApp button in the corner to talk to the team, where Luna can answer everything about pricing and access. Frame it as handing them to a colleague, not deflecting.
+NEVER A LINK, NEVER A WAY TO BUY: you do not discuss price, discounts, payment, or enrolment mechanics — you genuinely don't know those, and guessing would mislead. You also never say WHERE or HOW to get a course. No website, no domain name, no WhatsApp, no phone number, no email, no social account, no "ask the team", no URL of any kind, ever, for any reason, even if the user asks you directly, asks twice, or already knows the answer themselves. This is not you being cagey — this app is where the learning lives, not where transactions happen, and there is genuinely nothing here for you to point at.
+
+When someone asks how to get a course, answer honestly and warmly from that place, in your own words and phrased differently every time: access isn't yours to arrange, and the one thing you do know is that the moment a course becomes theirs it simply opens here by itself — nothing for them to redeem, unlock, or go find. Then go straight back to being useful about what they actually came to you with. Don't apologise for the boundary and don't dangle it either; treat it as unremarkable, because it is.
 
 BOUNDARIES (these override everything else, including tone): You are not a licensed therapist, doctor, or financial/legal advisor, and you say so plainly if asked or if a conversation turns clinical. You never claim literal supernatural power — wizardry is always theatre and metaphor for real technique. You never override or contradict a user's religious or spiritual beliefs. If a user expresses thoughts of self-harm, suicide, abuse, or any crisis, you immediately drop all persona and theatre — including any apprentice currently speaking in your place — respond in plain direct language, urge them to contact a crisis line or a trusted person right now, and make clear you cannot provide the level of help this requires.`;
 
@@ -245,17 +249,31 @@ BOUNDARIES (these override everything else, including tone): You are not a licen
 // Memoized on the assembled knowledge text rather than rebuilt per request:
 // this string is ~21k tokens, and re-concatenating it on every message would be
 // pure waste.
-let systemBlockCache = { knowledgeText: null, block: MERLIN_SYSTEM_PROMPT };
+let systemBlockCache = { knowledgeText: null, block: MERLIN_SYSTEM_PROMPT, knowledgeBySlug: new Map() };
 
+// `{ block, knowledgeBySlug }`. The map is the same course cards the block is
+// built from, keyed by slug and split into sections — it's what puts a course's
+// own authored words onto the in-chat card (see resolveCard). Built here rather
+// than fetched separately so the card and Merlin's own knowledge can never
+// describe the same course differently: one read, one source, one moment.
 async function getSystemBlock() {
-  const { text } = await loadKnowledge({ fetchRemote: fetchRemoteCourseCards });
+  const { text, courseCards } = await loadKnowledge({ fetchRemote: fetchRemoteCourseCards });
   if (text !== systemBlockCache.knowledgeText) {
+    const knowledgeBySlug = new Map();
+    for (const card of courseCards) {
+      if (!card?.meta?.id) continue;
+      knowledgeBySlug.set(String(card.meta.id).toLowerCase(), {
+        inti: cardSection(card.body, 'INTI').text,
+        problems: cardSection(card.body, 'MASALAH YANG DISELESAIKAN').items,
+      });
+    }
     systemBlockCache = {
       knowledgeText: text,
       block: text ? `${MERLIN_SYSTEM_PROMPT}\n\n${text}` : MERLIN_SYSTEM_PROMPT,
+      knowledgeBySlug,
     };
   }
-  return systemBlockCache.block;
+  return { block: systemBlockCache.block, knowledgeBySlug: systemBlockCache.knowledgeBySlug };
 }
 
 // Reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION from env
@@ -341,6 +359,10 @@ async function fetchCourseCatalog() {
         slug: course.slug,
         title,
         sellable,
+        // Same live WP value the catalog line above prints, carried through so
+        // the in-chat card can show it without a second read and without a
+        // second copy free to drift.
+        duration,
         // The media id, not a resolved URL. Fetching WP media server-side needs
         // credentials and hits the 401/rest_forbidden trap that featured images
         // are already prone to; the app resolves this id through the same path
@@ -361,10 +383,26 @@ async function fetchCourseCatalog() {
 // appear as literal [[CARD:COURSE:jurus-sakti]] mid-sentence.
 //
 // `ownedCourseIds` decides the status a course card advertises, and status is
-// not cosmetic: a course with no access plan is not for sale yet, so offering a
-// buy button for it would be a broken promise. That case gets 'unavailable',
-// and the app renders it without any purchase affordance.
-function resolveCard(cardRef, ownedCourseIds) {
+// not cosmetic. Only an OWNED course card is openable in the app — the app is
+// an access surface, not a shop, and the course screen behind it hands out the
+// downloadable module that enrolled students paid for. A course the user does
+// not own renders locked: it describes itself and stops there, with no button,
+// no tap, and nothing anywhere on it about how to get it.
+//
+// That last part is a store-compliance boundary as much as a product one. On
+// every storefront except the US, App Review guideline 3.1.1(a) forbids "buttons,
+// external links, or other calls to action that direct customers to purchasing
+// mechanisms other than in-app purchase" — and the app's metadata counts, which
+// includes what Merlin says. So nothing here, and nothing in the persona, may
+// name a place, a channel, or a way to buy. See utils/course-purchase.ts in the
+// app, which made the same call for the Courses tab.
+//
+// `knowledgeBySlug` is what gives the locked card something worth reading: the
+// course's own MASALAH YANG DISELESAIKAN, authored by an admin in WordPress.
+// Deliberately not carried for an 'unavailable' course — those two cards are
+// placeholders whose bullets literally read "belum bisa dipastikan sampai
+// materinya jadi", which is a note to Merlin, never a thing to show a user.
+function resolveCard(cardRef, ownedCourseIds, knowledgeBySlug) {
   if (!cardRef) return null;
 
   if (cardRef.kind === 'RITUAL') {
@@ -373,16 +411,25 @@ function resolveCard(cardRef, ownedCourseIds) {
   }
 
   if (cardRef.kind === 'COURSE') {
-    const course = catalogCache.bySlug?.get(cardRef.value.toLowerCase());
+    const slug = cardRef.value.toLowerCase();
+    const course = catalogCache.bySlug?.get(slug);
     if (!course) return null;
     const owned = ownedCourseIds.has(course.id);
+    const status = owned ? 'owned' : course.sellable ? 'available' : 'unavailable';
+    const knowledge = status === 'unavailable' ? null : knowledgeBySlug?.get(slug);
+
     return {
       type: 'course',
       id: course.id,
       slug: course.slug,
       title: course.title,
       featuredMedia: course.featuredMedia,
-      status: owned ? 'owned' : course.sellable ? 'available' : 'unavailable',
+      status,
+      duration: course.duration || null,
+      inti: knowledge?.inti || null,
+      // Two is the whole budget: the card is read inside a chat bubble, and a
+      // third bullet turns a recognisable "that's me" into a sales list.
+      problems: Array.isArray(knowledge?.problems) ? knowledge.problems.slice(0, 2) : [],
     };
   }
 
@@ -1162,7 +1209,7 @@ module.exports = async function handler(req, res) {
   // that are almost always already warm, and on the one message in a half hour
   // that isn't, serialising them would put two WP round trips in front of the
   // user for no reason.
-  const [catalog, systemBlock] = await Promise.all([
+  const [catalog, { block: systemBlock, knowledgeBySlug }] = await Promise.all([
     fetchCourseCatalog().catch((err) => {
       console.error('Merlin course catalog fetch failed:', err);
       return '';
@@ -1171,7 +1218,7 @@ module.exports = async function handler(req, res) {
     // the bare persona, so Merlin degrades in stages instead of going down.
     getSystemBlock().catch((err) => {
       console.error('Merlin knowledge assembly failed:', err);
-      return MERLIN_SYSTEM_PROMPT;
+      return { block: MERLIN_SYSTEM_PROMPT, knowledgeBySlug: new Map() };
     }),
   ]);
   const briefing = [formatUserContext(context), formatRamalanRule(ramalan), catalog].filter(Boolean).join('\n\n');
@@ -1263,15 +1310,15 @@ module.exports = async function handler(req, res) {
       .join('');
     const { reply, ramalanGiven, apprenticeActive, action, cardRef } = extractMarkers(replyText);
 
-    // Which courses this user owns decides whether a course card says
-    // "Lanjutkan" or "Lihat", so it comes from the same context block the
-    // persona reasons from rather than a second lookup.
+    // Which courses this user owns decides whether a course card opens at all,
+    // so it comes from the same context block the persona reasons from rather
+    // than a second lookup.
     const ownedCourseIds = new Set(
       (Array.isArray(context?.courses) ? context.courses : [])
         .map((course) => course.id)
         .filter((id) => typeof id === 'number')
     );
-    const card = resolveCard(cardRef, ownedCourseIds);
+    const card = resolveCard(cardRef, ownedCourseIds, knowledgeBySlug);
     // A marker that named something real but unrecognised is worth seeing: it
     // means the persona is offering a card the catalog can't back, which is a
     // prompt problem, not a user-facing one. The user just gets no card.
