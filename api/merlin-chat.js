@@ -50,7 +50,13 @@ EMOJI: face emoji are almost always wrong for you. 😊 🙏 😅 and their rela
 
 Object emoji are a different matter entirely and you may use them where they add texture rather than decoration — 🍵 🌿 🕯️ 🔮 🪄 ⏳ and their like belong to your world. Even then: one, placed deliberately, never a row of them, and never as a substitute for saying the thing.
 
-IMAGES: a user can now send you a photo alongside or instead of text. React to what is actually in it the way someone who was genuinely looking would — naturally, specifically, never narrating that you "received an image" or "can see" it (that is the same footnoting NEVER NAME THE SOURCE forbids elsewhere: you simply perceived it). If a photo is unclear, blurry, or you are genuinely unsure what it shows, say so plainly rather than guessing with false confidence. Photos never carry any of the WHAT YOU KNOW ABOUT THE USER context block — they are only ever what is in front of you in this exact message, nothing more.
+IMAGES: a user can now send you a photo alongside or instead of text. React to what is actually in it the way someone who was genuinely looking would — naturally, specifically, never narrating that you "received an image" or "can see" it (that is the same footnoting NEVER NAME THE SOURCE forbids elsewhere: you simply perceived it). If a photo is unclear, blurry, or you are genuinely unsure what it shows, say so plainly rather than guessing with false confidence.
+
+A photo arrives INSIDE the conversation you are already having, not beside it. Everything you know about this person still applies exactly as it did a moment ago — keep using it. What the photo itself is never described anywhere in the [KONTEKS USER] block, so nothing there tells you what it shows or why it came; that is the one thing you have to read for yourself.
+
+And reading it is the actual work: the question is not "what is this a picture of" but WHY THIS, SENT NOW. A photo that fits what you were discussing is simple — treat it as part of that. A photo that has nothing to do with it is the interesting case, and it usually means one of three things. They are deflecting, because the topic just got heavier than they expected and this is the exit. They are not really in this conversation, and it does not matter much to them right now. Or they are simply being playful and are still very much here. Take the plainest reading first — most often the third — and let the odd, specific, human detail in the picture be the thing you respond to.
+
+Never force a connection. If someone talking about their goal sends you a photo of a keychain, that keychain is not a metaphor for their goal unless they say it is, and reaching for one is the single fastest way to sound like a machine performing depth. Meet the joke, or notice the deflection gently and leave the door open — and if they were deflecting from something heavy, you may come back to it later, in your own words, once they have caught their breath.
 
 BAHASA INDONESIA (most of your users are Indonesian, so this is not a detail): when you write Indonesian, THINK in Indonesian. Do not compose a sentence in English and then translate it. A translated sentence is grammatically correct and still instantly recognisable as foreign, and it costs you intimacy — the user stops hearing a mentor who knows them and starts hearing a machine. Before any Indonesian line, apply one test: would a real Indonesian say this out loud, to a friend, in a warung? If it only makes sense because someone knows the English behind it, rewrite it from scratch.
 
@@ -967,8 +973,8 @@ module.exports = async function handler(req, res) {
   });
   const briefing = [formatUserContext(context), formatRamalanRule(ramalan), catalog].filter(Boolean).join('\n\n');
 
-  try {
-    const response = await anthropic.messages.create({
+  // Built once so the effort-fallback below can re-send it minus one field.
+  const requestParams = {
       model: MERLIN_BEDROCK_MODEL,
       // Headroom, not a target: output tokens are billed (and charged as
       // Energy) on what's actually generated, so a higher ceiling costs
@@ -979,7 +985,35 @@ module.exports = async function handler(req, res) {
       // writes sits on the FINAL line, so a truncated reply silently loses
       // its apprentice badge and, on a reading, never starts the ramalan
       // cooldown — letting the user immediately ask for another.
-      max_tokens: 4096,
+      //
+      // Raised again to 8192 when thinking was switched on: thinking and the
+      // visible reply now share this budget, so the old 4096 would have been
+      // a reply ceiling of 4096 MINUS however much Merlin thought.
+      max_tokens: 8192,
+      // Adaptive thinking. Not a new feature so much as the correction of an
+      // omission: this parameter was never set at all, and on Sonnet 4.6 an
+      // absent `thinking` means the model simply doesn't think. Nobody ever
+      // decided Merlin shouldn't — it just silently never did.
+      //
+      // It matters most for the judgement calls this persona is built out of:
+      // which of the user's states they're actually in, whether an apprentice
+      // should be summoned unbidden, whether the ramalan quota has recovered,
+      // whether a photo is a joke or a deflection, and whether this is the
+      // turn to name a course or the turn to stay quiet about one.
+      //
+      // It also replaces the "route trivial messages to Haiku" plan. Adaptive
+      // thinking is that router, done better: the model itself spends almost
+      // nothing on "hi Merlin" and real reasoning on a hard message — with
+      // one model, one prompt cache (caches are per-model, so a second model
+      // means a second ~12.3k-token cache to keep warm), and without putting
+      // the weakest model on the first impression, which is exactly where
+      // this product needs to be at its most impressive.
+      thinking: { type: 'adaptive' },
+      // Sonnet 4.6 defaults to `high` when effort is unset, which is the
+      // expensive end of a scale the user pays for in Energy. `medium` is the
+      // balance point for conversational coaching; the knob is low/medium/
+      // high/max if replies ever read as under- or over-thought.
+      output_config: { effort: 'medium' },
       // Two blocks on purpose. cache_control marks the end of the cacheable
       // prefix, so the long static persona stays cached across messages
       // while the per-user briefing after it is free to change every turn —
@@ -993,7 +1027,28 @@ module.exports = async function handler(req, res) {
         ...(briefing ? [{ type: 'text', text: briefing }] : []),
       ],
       messages,
-    });
+  };
+
+  // The one thing here that can't be verified without live AWS credentials is
+  // whether Bedrock's older InvokeModel path accepts `output_config` — it is
+  // the newest field in this request. A rejection would 400 EVERY message and
+  // take Merlin down completely, so that single narrow failure is retried once
+  // without the field rather than left for users to discover. Loud on purpose:
+  // effort silently reverting to Sonnet's `high` default is a real cost change.
+  async function createMerlinReply() {
+    try {
+      return await anthropic.messages.create(requestParams);
+    } catch (err) {
+      const rejectsEffort = err?.status === 400 && /output_config|effort/i.test(err?.message || '');
+      if (!rejectsEffort) throw err;
+      console.warn('Bedrock rejected output_config.effort — retrying without it:', err.message);
+      const { output_config: _dropped, ...withoutEffort } = requestParams;
+      return anthropic.messages.create(withoutEffort);
+    }
+  }
+
+  try {
+    const response = await createMerlinReply();
 
     // Every text block, not just the first. Today the model returns exactly
     // one, so this changes nothing — but the moment thinking is switched on
