@@ -1,5 +1,5 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
-const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset } = require('../lib/energy');
+const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset, WEEKLY_ENERGY_MAX } = require('../lib/energy');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 
@@ -1165,7 +1165,7 @@ module.exports = async function handler(req, res) {
       extraEnergyEnabled: false,
       windowStartedAt: now,
       weeklyUsed: 0,
-      weeklyMax: 700,
+      weeklyMax: WEEKLY_ENERGY_MAX,
       weeklyWindowStartedAt: now,
     };
   });
