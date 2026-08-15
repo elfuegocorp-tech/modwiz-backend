@@ -300,6 +300,11 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Today's calendar day in Jakarta, as YYYY-MM-DD.
  *
+ * Only a FALLBACK now, for app builds that predate the client sending its own
+ * date on POST /stage. Jakarta is a guess about where the user is, and a wrong
+ * one for anyone abroad or travelling; the device's local day is the real
+ * answer whenever the app offers it. Never make this the primary source again.
+ *
  * NOT `toISOString().slice(0, 10)`. Edge Functions run in UTC, and Jakarta is
  * UTC+7 with no DST — so between local midnight and 07:00 a UTC date is
  * yesterday. That window is exactly when someone finishes a night ritual and
@@ -460,11 +465,18 @@ const handler = withAuth('content', async (req, user, path) => {
       return json({ error: 'Invalid target stage.' }, 400);
     }
 
+    // The device's own calendar day, the same way a check-in sends its own.
+    // jakartaToday() is the fallback for app builds older than this change,
+    // which send no date at all — for a user in Jakarta the two agree, and for
+    // anyone else the app-sent day is the correct one.
+    const clientDate = str(body?.date);
+    const stageDate = clientDate && ISO_DATE.test(clientDate) ? clientDate : jakartaToday();
+
     const nextConfirmations: StageConfirmation[] = [
       ...confirmations,
       // Date only, no time — this is what the Profile timeline and the goal
       // letter both read, and both group by calendar day.
-      { stageNumber: target, date: jakartaToday(), journalText },
+      { stageNumber: target, date: stageDate, journalText },
     ];
 
     const encrypted = await encryptRow(
