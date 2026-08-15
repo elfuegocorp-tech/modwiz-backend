@@ -1,6 +1,6 @@
 project_id = "itqzoziplfiazsavzdxd"
 
-# WHY verify_jwt = false ON BOTH FUNCTIONS
+# WHY verify_jwt = false ON EVERY FUNCTION HERE
 #
 # Not a relaxation of security — a consequence of where identity lives.
 #
@@ -38,4 +38,12 @@ project_id = "itqzoziplfiazsavzdxd"
 verify_jwt = false
 
 [functions.content]
+verify_jwt = false
+
+# catalog: the LifterLMS read proxy. Same reasoning as above — the app reaches
+# it with the user's WordPress Basic header, so the gateway would reject every
+# request before withAuth ever ran. Adding it here was missed on the first
+# deploy and produced exactly the UNAUTHORIZED_INVALID_JWT_FORMAT this file
+# warns about.
+[functions.catalog]
 verify_jwt = false
