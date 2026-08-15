@@ -82,14 +82,34 @@ module.exports = async function handler(req, res) {
       const { weekStartUtc, weekStartDateStr } = mostRecentMondayWibUtc();
       const weekEndUtc = new Date(weekStartUtc.getTime() + 7 * 24 * 60 * 60 * 1000);
       const ranking = await computeWeeklyXpRanking(weekStartUtc, weekEndUtc);
+      // Everyone who opted out is gone from the public list AND from the rank
+      // numbering (see lib/leaderboard.js) — `visible` is what the screen
+      // draws, `ranking` is only still needed to find the caller's own XP.
+      const visible = ranking.filter((r) => !r.hidden);
+
+      // Read the caller's own flag directly rather than inferring it from
+      // their ranking row: someone who opted out AND has no XP this week
+      // isn't in `ranking` at all, and their card still has to say
+      // "tersembunyi" instead of "belum ada XP".
+      const { data: myState, error: myStateError } = await supabase
+        .from('gamification_state')
+        .select('leaderboard_hidden')
+        .eq('wp_user_id', wpUser.id)
+        .maybeSingle();
+      if (myStateError) throw myStateError;
+      const iAmHidden = myState?.leaderboard_hidden === true;
 
       const mine = ranking.find((r) => r.wpUserId === wpUser.id) ?? null;
-      const above = mine && mine.rank > 1 ? ranking[mine.rank - 2] : null;
+      // Indexed into `visible`, not `ranking` — the person one rank above me
+      // is the one I can see, so the "X XP lagi buat lewatin ..." line never
+      // names a hidden account. Suppressed entirely when I'm hidden myself,
+      // since I have no rank to close a gap on.
+      const above = mine && !mine.hidden && mine.rank > 1 ? visible[mine.rank - 2] : null;
 
       res.status(200).json({
         weekStart: weekStartDateStr,
         resetInMs: weekEndUtc.getTime() - Date.now(),
-        entries: ranking.slice(0, 100).map((r) => ({
+        entries: visible.slice(0, 100).map((r) => ({
           rank: r.rank,
           wpUserId: r.wpUserId,
           firstName: r.firstName,
@@ -97,7 +117,11 @@ module.exports = async function handler(req, res) {
           xpTotal: r.xpTotal,
         })),
         me: {
+          // Null for a hidden user too (computeWeeklyXpRanking never assigns
+          // them one) — but `hidden` below is what tells the two apart from
+          // "no XP yet this week".
           rank: mine ? mine.rank : null,
+          hidden: iAmHidden,
           wpUserId: wpUser.id,
           firstName: mine ? mine.firstName : null,
           avatarUrl: mine ? mine.avatarUrl : null,
@@ -151,6 +175,10 @@ module.exports = async function handler(req, res) {
       xpTotal: state ? state.xp_total : 0,
       soulsBalance: state ? state.souls_balance : 0,
       isAdmin: !!adminRow,
+      // Carried on the main payload (not just ?view=leaderboard) so the
+      // Pengaturan switch can render from the /state every screen already
+      // fetches, instead of pulling 100 other users' rows to read one bool.
+      leaderboardHidden: state ? state.leaderboard_hidden === true : false,
       pendingLeaderboardReward,
       energyCurrent: energy ? Math.round(energy.energyCurrent) : null,
       energyMax: energy ? energy.energyMax : null,

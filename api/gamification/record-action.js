@@ -84,6 +84,37 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Also not an XP action — the leaderboard privacy opt-out ("Jangan
+  // tampilkan aku di Leaderboards", see sql/leaderboard-hidden.sql). Lives
+  // here for the same reason as the two above: state.js is the read side and
+  // this repo is at Vercel's 12-function cap.
+  //
+  // It can only ever set the CALLER's own row: wpUserId comes from
+  // verifyWpUser, never from the body, so no one can hide (or un-hide)
+  // somebody else by posting their id. Upsert for the same reason
+  // sync_profile uses one — a user who has never earned XP has no row yet.
+  if (actionType === 'set_leaderboard_hidden') {
+    const hidden = req.body.hidden;
+    if (typeof hidden !== 'boolean') {
+      res.status(400).json({ error: 'hidden must be true or false' });
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('gamification_state')
+        .upsert(
+          { wp_user_id: wpUserId, leaderboard_hidden: hidden, updated_at: new Date().toISOString() },
+          { onConflict: 'wp_user_id' }
+        );
+      if (error) throw error;
+      res.status(200).json({ ok: true, leaderboardHidden: hidden });
+    } catch (err) {
+      console.error('gamification/record-action set_leaderboard_hidden error:', err);
+      res.status(500).json({ error: 'Could not update your leaderboard setting right now.' });
+    }
+    return;
+  }
+
   if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
     res.status(400).json({ error: 'Unknown or missing actionType' });
     return;
