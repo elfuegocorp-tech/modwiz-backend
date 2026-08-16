@@ -49,10 +49,15 @@ async function renderJpeg(html) {
   const viewportMatch = html.match(/name="viewport" content="width=(\d+)"/);
   const width = viewportMatch ? parseInt(viewportMatch[1], 10) : 980;
 
+  // Exactly the launch shape @sparticuz/chromium documents. In particular
+  // `headless: chromium.headless` (their "shell" mode), NOT `true` — the
+  // packaged binary is chrome-headless-shell, and asking it for the regular
+  // new-headless mode can fail the launch outright on Vercel.
   const browser = await puppeteer.launch({
     args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
     executablePath: await chromium.executablePath(),
-    headless: true,
+    headless: chromium.headless,
   });
   try {
     const page = await browser.newPage();
