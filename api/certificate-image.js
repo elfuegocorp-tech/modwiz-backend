@@ -127,7 +127,13 @@ module.exports = async function handler(req, res) {
       jpeg = await renderJpeg(html);
     } catch (err) {
       console.error('Certificate render error:', err);
-      res.status(500).json({ error: 'Could not render the certificate image' });
+      // detail surfaces the real chromium/puppeteer failure to a curl —
+      // this project has no log access from the dev machine (CLI logged
+      // out), so the response body IS the debugging channel.
+      res.status(500).json({
+        error: 'Could not render the certificate image',
+        detail: String((err && err.message) || err).slice(0, 500),
+      });
       return;
     }
     await uploadToCache(path, jpeg);
