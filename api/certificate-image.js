@@ -40,8 +40,10 @@ const JPEG_QUALITY = 92;
 const SCALE = 2; // deviceScaleFactor — "2x" in the storage filename.
 
 async function renderJpeg(html) {
-  // Required lazily so a cache hit never pays the chromium import cost.
-  const chromium = require('@sparticuz/chromium');
+  // Loaded lazily so a cache hit never pays the chromium import cost — and
+  // via dynamic import() because @sparticuz/chromium v137+ is ESM-only:
+  // require() of it throws ERR_REQUIRE_ESM in this CommonJS function.
+  const { default: chromium } = await import('@sparticuz/chromium');
   const puppeteer = require('puppeteer-core');
 
   // The WP snippet writes the certificate's true pixel width into the
