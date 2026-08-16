@@ -2,6 +2,9 @@
   "functions": {
     "api/merlin-chat.js": {
       "includeFiles": "knowledge/**"
+    },
+    "api/certificate-image.js": {
+      "maxDuration": 60
     }
   }
 }

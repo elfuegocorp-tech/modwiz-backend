@@ -2,11 +2,17 @@ const { verifyWpUser } = require('../lib/wp-auth');
 
 const UNSPLASH_API_URL = 'https://api.unsplash.com';
 
-// Keeps the Unsplash Access Key server-side, same reason the Anthropic key
-// stays out of the app — and forces every search to portrait orientation
-// since that's the only shape the Wisdom quote card template supports.
+// One function, two jobs, split by method — merged from wisdom-background-search
+// (GET) and wisdom-background-select (POST) to free a slot under Vercel's
+// 12-function cap for api/certificate-image.js. Same auth, same env var, and
+// the app's services/wisdomBackend.ts was updated in the same change.
+//
+// GET  ?query=&page=  — Unsplash portrait search (key stays server-side, same
+//                       reason the Anthropic key stays out of the app).
+// POST {downloadLocation} — Unsplash's required download ping, called once when
+//                       a photo is actually picked, not on every search result.
 module.exports = async function handler(req, res) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
@@ -21,6 +27,24 @@ module.exports = async function handler(req, res) {
   const accessKey = process.env.UNSPLASH_ACCESS_KEY;
   if (!accessKey) {
     res.status(500).json({ error: 'Backend is missing UNSPLASH_ACCESS_KEY' });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const { downloadLocation } = req.body || {};
+    if (typeof downloadLocation !== 'string' || !downloadLocation.startsWith('https://api.unsplash.com/')) {
+      res.status(400).json({ error: 'Invalid downloadLocation' });
+      return;
+    }
+
+    try {
+      await fetch(downloadLocation, { headers: { Authorization: `Client-ID ${accessKey}` } });
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('Unsplash download-ping error:', err);
+      // Non-fatal for the user's flow — they've already picked their photo.
+      res.status(200).json({ ok: false });
+    }
     return;
   }
 

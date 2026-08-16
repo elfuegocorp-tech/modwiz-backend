@@ -5,7 +5,9 @@
   "description": "Small serverless backend for the Modwiz app. Currently just one endpoint: Merlin chat.",
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.32.0",
-    "@supabase/supabase-js": "^2.45.0"
+    "@sparticuz/chromium": "^137.0.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "puppeteer-core": "^24.0.0"
   },
   "scripts": {
     "knowledge:audit": "node scripts/knowledge-audit.js",
