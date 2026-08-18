@@ -10,6 +10,13 @@
 // Read it before touching the prompt below. Its hard rules are not style
 // preferences; each one is there because breaking it turns the feature into
 // an ordinary personality test.
+//
+// SINCE 2026-08-18 THIS FUNCTION ALSO WRITES MANAS' LAPIS 3 ("Bahasamu").
+// Not a new api/*.js file because the repo sits at Vercel's 12-function cap
+// (a 13th silently 404s) — same fold the course-Souls grant made into
+// record-action.js. The app selects the branch with body.instrument:
+// 'manas-bahasa'; absent means Agni Chakti, so every existing client keeps
+// working unchanged.
 
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { verifyWpUser } = require('../lib/wp-auth');
@@ -70,6 +77,174 @@ Panjang: 1-3 kalimat.
 Kembalikan HANYA JSON valid, tanpa markdown fence, tanpa teks lain:
 {"disclosure": "...", "nextStep": "..."}
 Salah satu atau keduanya boleh string kosong kalau aturan di atas menuntutnya. Mengosongkan bukan kegagalan — itu perilaku yang benar ketika datanya tidak cukup.`;
+
+// === MANAS LAPIS 3 — "Bahasamu" ============================================
+//
+// Reads the language of the user's own check-in journal and says which sensory
+// vocabulary carries it. The same discipline as Agni Chakti's prompt: quote
+// the user verbatim, conclude something they didn't say, and return EMPTY
+// rather than forced. The V/A/K/Ad letters never reach this prompt — the app
+// sends the Indonesian channel names it shows on screen, so a key the model
+// was never handed is a key it can't leak (same defence as withholding Agni's
+// ranks 3–4).
+
+const MANAS_BAHASA_SYSTEM_PROMPT = `Kamu menulis tiga blok teks untuk Lapis 3 dari fitur Manas di app Modwiz — pembacaan BAHASA JURNAL user. Kamu BUKAN chatbot di sini — tidak menyapa, tidak bertanya. Kamu menghasilkan JSON.
+
+Manas mengukur lewat indra mana user menyusun dunianya. Dua lapis pertama mengukur lewat pilihan sadar. Lapis ketiga membaca yang lebih jujur: kata-kata yang keluar sendiri saat dia menulis jurnal, tanpa dijaga.
+
+=== BAHASA ===
+Tulis dalam Bahasa Indonesia, dan BERPIKIR dalam Bahasa Indonesia. Jangan menyusun kalimat Inggris lalu menerjemahkannya. Uji tiap kalimat: apakah orang Indonesia betulan mengucapkan ini ke temannya?
+
+=== EMPAT KELUARGA BAHASA ===
+Petakan kosakata jurnal ke empat jalur ini. Sebut jalur HANYA dengan nama Indonesianya:
+- "Penglihatan" — kata-kata tentang yang terlihat: lihat, kelihatan, jelas, gambaran, terang, gelap, buram, fokus.
+- "Pendengaran" — kata-kata tentang bunyi dan yang terdengar: dengar, kedengarannya, bilang, cerita, berisik, sunyi, nada.
+- "Sentuhan dan gerak" — kata-kata tubuh, rasa, dan gerak: rasa, terasa, berat, ringan, capek, pegang, jalan, gerak, hangat, dingin.
+- "Suara dalam kepala" — dialog internal: mikir, kepikiran, tanya-tanya sendiri, bilang ke diri sendiri, kenapa ya, harusnya.
+
+=== BLOK 1: BAHASA ===
+Jalur mana yang paling sering membawa kalimat-kalimatnya.
+Aturan keras:
+1. WAJIB mengutip 2-3 potongan pendek dari jurnalnya APA ADANYA (dalam tanda kutip), lalu mengatakan sesuatu TENTANG kata-kata itu yang dia tidak katakan. Datanya dari dia, kesimpulannya bukan.
+2. Kalau materi jurnalnya terlalu tipis atau tidak ada pola yang benar-benar ada, KOSONGKAN (string kosong). Kalimat yang dipaksa terbaca sebagai tebakan.
+3. BUKAN pujian, BUKAN penilaian. Tidak ada jalur yang lebih baik dari jalur lain.
+Panjang: 2-4 kalimat, satu paragraf.
+
+=== BLOK 2: BANDING ===
+Bandingkan bahasa jurnalnya dengan hasil pengukurannya (dikirim di input).
+- Kalau SAMA: konfirmasi singkat — tulisannya membenarkan pengukurannya, dan itu berarti hasilnya bisa dia percaya.
+- Kalau BEDA: justru ini yang menarik, dan pertentangannya DISEBUT, bukan dirata-ratakan. Jurnal ditulis tanpa dijaga, jadi jurnal lebih tinggi derajatnya dari kuisioner. Contoh bentuk: "Pengukuranmu bilang kamu orang Penglihatan. Jurnalmu hampir selalu bicara lewat badan — 'capek', 'berat', 'nggak sanggup rasanya'. Yang kamu pakai diam-diam bukan yang kamu pilih sadar."
+- Kalau blok 1 kosong, blok ini juga KOSONG.
+Panjang: 1-3 kalimat.
+
+=== BLOK 3: SARAN ===
+Satu cara memakai temuan ini MINGGU INI. Bukan sikap, bukan mindset — tindakan.
+Aturan keras:
+- WAJIB menyebut minimal satu kata dari jurnalnya sendiri.
+- Contoh arah (jangan disalin mentah): kalau jalur dominannya Sentuhan dan gerak, saran yang masuk akal berbentuk "keputusan besar minggu ini — jalan kaki dulu sebelum memutuskan, badanmu yang biasa kasih jawaban".
+- Kalau tidak bisa memenuhi syarat kutipan, KOSONGKAN. Lebih baik kosong daripada generik.
+Panjang: 1-2 kalimat.
+
+=== DILARANG DI SEMUA BLOK ===
+- Huruf atau singkatan jalur apa pun (satu huruf pun). Hanya empat nama Indonesia di atas.
+- Menyebut VAK, NLP, learning styles, modalitas, atau instrumen/kerangka apa pun.
+- Persentase, skor, hitungan kata, atau angka mentah apa pun.
+- Menyebut satu jalur lebih baik/lebih tinggi dari yang lain.
+- Kata "negatif", "kelemahan", "kekurangan".
+- Mengutip isi jurnal yang sensitif secara utuh (nama orang, konflik pribadi) — kutip FRASA pendeknya saja, bukan ceritanya.
+- Menjadikan Merlin pahlawannya. Setiap blok berakhir di tangan user.
+
+=== KELUARAN ===
+Kembalikan HANYA JSON valid, tanpa markdown fence, tanpa teks lain:
+{"bahasa": "...", "banding": "...", "saran": "..."}
+Satu, dua, atau ketiganya boleh string kosong kalau aturan di atas menuntutnya. Mengosongkan bukan kegagalan.`;
+
+// The floor under "enough to read". Below this there is no pattern to find,
+// only a guess to make — same reasoning as MIN_ANSWERED_FOR_DISCLOSURE.
+const MANAS_MIN_JOURNAL_CHARS = 300;
+
+// Caps applied to whatever the app sends, so a runaway payload can't buy an
+// unbounded model call. The app caps first; this is the backstop.
+const MANAS_MAX_ENTRIES = 30;
+const MANAS_MAX_ENTRY_CHARS = 800;
+const MANAS_MAX_TOTAL_CHARS = 12000;
+
+function isValidManasPayload(body) {
+  return (
+    body &&
+    Array.isArray(body.journal) &&
+    typeof body.primaryName === 'string' &&
+    body.primaryName.length > 0
+  );
+}
+
+function buildManasFacts({ journal, primaryName, coPrimaryName }) {
+  const lines = [];
+
+  lines.push('[PENGUKURAN — hasil dua lapis pertama, sudah ditampilkan ke user]');
+  lines.push(
+    coPrimaryName
+      ? `Jalur utamanya dua, hampir sama kuat: ${primaryName} dan ${coPrimaryName}.`
+      : `Jalur utamanya: ${primaryName}.`
+  );
+
+  lines.push('');
+  lines.push('[JURNAL — kata-kata user sendiri, urut dari yang terbaru; kutip apa adanya]');
+  let total = 0;
+  let used = 0;
+  for (const entry of journal.slice(0, MANAS_MAX_ENTRIES)) {
+    if (!entry || typeof entry.text !== 'string') continue;
+    const text = entry.text.trim().slice(0, MANAS_MAX_ENTRY_CHARS);
+    if (!text) continue;
+    if (total + text.length > MANAS_MAX_TOTAL_CHARS) break;
+    total += text.length;
+    used += 1;
+    const date = typeof entry.date === 'string' ? entry.date : '';
+    lines.push(date ? `${date}: ${text}` : text);
+  }
+  lines.push('');
+  lines.push(`Jumlah entri terbaca: ${used}.`);
+
+  return { facts: lines.join('\n'), totalChars: total };
+}
+
+function parseManasJson(text) {
+  const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    return {
+      bahasa: typeof parsed.bahasa === 'string' ? parsed.bahasa.trim() : '',
+      banding: typeof parsed.banding === 'string' ? parsed.banding.trim() : '',
+      saran: typeof parsed.saran === 'string' ? parsed.saran.trim() : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function handleManasBahasa(req, res) {
+  if (!isValidManasPayload(req.body)) {
+    res.status(400).json({ error: 'Invalid Manas payload' });
+    return;
+  }
+
+  const { journal, primaryName, coPrimaryName } = req.body;
+  const { facts, totalChars } = buildManasFacts({ journal, primaryName, coPrimaryName });
+
+  if (totalChars < MANAS_MIN_JOURNAL_CHARS) {
+    // Three empty blocks, and that is the correct answer — not an error. The
+    // app keeps the meters up and lets the journal keep growing.
+    res.status(200).json({ bahasa: '', banding: '', saran: '' });
+    return;
+  }
+
+  try {
+    const response = await anthropic.messages.create({
+      model: AGNI_CHAKTI_BEDROCK_MODEL,
+      max_tokens: 1024,
+      system: [{ type: 'text', text: MANAS_BAHASA_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: facts }],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const parsed = parseManasJson(textBlock ? textBlock.text : '');
+
+    if (!parsed) {
+      // Same rule as Agni: an unparseable reply becomes empty blocks, never a
+      // fragment the user reads.
+      console.error('Manas Lapis 3: model reply was not valid JSON');
+      res.status(200).json({ bahasa: '', banding: '', saran: '' });
+      return;
+    }
+
+    res.status(200).json(parsed);
+  } catch (err) {
+    console.error('Manas Lapis 3/Bedrock error:', err);
+    res.status(502).json({ error: 'Tidak bisa menyusun bacaannya sekarang. Coba lagi sebentar lagi.' });
+  }
+}
+
+// === AGNI CHAKTI ============================================================
 
 // The four tendency names are the only vocabulary the model is given for the
 // questionnaire result. The internal axis names never leave the app.
@@ -173,6 +348,13 @@ module.exports = async function handler(req, res) {
   const wpUserId = await verifyWpUser(authHeader).catch(() => null);
   if (!wpUserId) {
     res.status(401).json({ error: 'Could not verify your Modwiz Mastery login' });
+    return;
+  }
+
+  // The Manas branch — see the header. Absent/other means Agni Chakti, so
+  // every client shipped before this field existed keeps working unchanged.
+  if (req.body && req.body.instrument === 'manas-bahasa') {
+    await handleManasBahasa(req, res);
     return;
   }
 
