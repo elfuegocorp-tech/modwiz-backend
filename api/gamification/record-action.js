@@ -9,6 +9,8 @@
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
+const { courseSoulsReward } = require('../../lib/course-rewards');
+const { grantSouls } = require('../../lib/souls');
 const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
 
 function requireLocalDate(localDate) {
@@ -151,6 +153,35 @@ module.exports = async function handler(req, res) {
       streakResult = await advanceStreak(wpUserId, localDate);
     }
 
+    // Finishing a course pays Souls on top of XP, in whatever amount the admin
+    // set on that course in WordPress (see lib/course-rewards.js).
+    //
+    // THE IDEMPOTENCY IS INHERITED, not re-implemented. course_complete is a
+    // once_per_ref action, so awardXp's insert into xp_events is the lock: the
+    // second time anyone reports finishing this course, that insert hits the
+    // unique index, xpAwarded comes back 0, and this block is skipped. There is
+    // deliberately no second dedupe record for Souls — two locks on one event
+    // is two things that can disagree.
+    //
+    // A failure here is logged and swallowed. The course IS finished; refusing
+    // the whole request over a Souls grant would leave the app believing the
+    // completion didn't take.
+    let courseSouls = 0;
+    if (actionType === 'course_complete' && xpResult.xpAwarded > 0) {
+      const courseId = Number(refId);
+      if (Number.isFinite(courseId) && courseId > 0) {
+        try {
+          const amount = await courseSoulsReward(courseId, authHeader);
+          if (amount > 0) {
+            await grantSouls(wpUserId, amount, `course_bonus:${courseId}`, null);
+            courseSouls = amount;
+          }
+        } catch (err) {
+          console.error('gamification/record-action course Souls grant failed:', err);
+        }
+      }
+    }
+
     if (firstName || avatarUrl) {
       const update = { updated_at: new Date().toISOString() };
       if (firstName) update.first_name = firstName;
@@ -172,7 +203,9 @@ module.exports = async function handler(req, res) {
       soulsBalance: state ? state.souls_balance : 0,
       xpAwarded: xpResult.xpAwarded,
       xpAlreadyAwarded: xpResult.alreadyAwarded,
-      soulsAwarded: streakResult ? streakResult.soulsAwarded : 0,
+      // One field for both sources — a Soul is a Soul (see lib/souls.js), and
+      // only one of these can ever be non-zero for a given action anyway.
+      soulsAwarded: (streakResult ? streakResult.soulsAwarded : 0) + courseSouls,
       streakAlreadyCountedToday: streakResult ? streakResult.alreadyCountedToday : null,
     });
   } catch (err) {
