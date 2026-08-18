@@ -14,8 +14,17 @@
 //   POST /content/lesson-notes/delete
 //   GET  /content/merlin-messages -> chat history   (Super Memory only)
 //   POST /content/merlin-messages -> push messages  (Super Memory only)
+//   POST /content/merlin-messages/delete -> forget messages, or the lot
 //   GET  /content/mandala        -> every Mandala reading, oldest first
 //   POST /content/mandala        -> upsert one reading
+//   GET  /content/goal-letter    -> Surat dari Merlin        (Super Memory)
+//   POST /content/goal-letter    -> replace it               (Super Memory)
+//   GET  /content/book-highlights        -> every Rak Buku mark (all tiers)
+//   POST /content/book-highlights        -> upsert one mark    (all tiers)
+//   POST /content/book-highlights/delete -> forget marks       (all tiers)
+//   GET  /content/merlin-favorites        -> kept replies    (Super Memory)
+//   POST /content/merlin-favorites        -> upsert many     (Super Memory)
+//   POST /content/merlin-favorites/delete -> forget replies  (Super Memory)
 //
 // One deployment, many routes — Supabase counts deployments the way Vercel
 // counts functions (see sql/supabase-migration/README.md).
@@ -356,6 +365,34 @@ function jakartaToday(): string {
 }
 
 // --- routes ------------------------------------------------------------------
+
+/**
+ * Is Super Memory actually on for this user?
+ *
+ * The entitlement AND the user's own switch, checked on the server rather than
+ * trusted from the client: a Modwiz Free user must simply have no rows, because
+ * storing everyone's data behind a hidden flag would mean holding data we told
+ * people we weren't holding.
+ *
+ * Three routes gate on this — merlin-messages, goal-letter and merlin-favorites
+ * — and they are the three things MERLIN wrote or said. Everything the USER
+ * wrote (check-ins, journal, goals, lesson notes, Mandala readings, book
+ * highlights) syncs for every tier and must never call this.
+ */
+async function superMemoryAllowed(wpUserId: number): Promise<boolean> {
+  const [{ data: privilege, error: privilegeError }, { data: profile, error: profileError }] =
+    await Promise.all([
+      supabase.rpc('is_privilege', { p_wp_user_id: wpUserId }),
+      supabase
+        .from('profiles')
+        .select('super_memory_enabled')
+        .eq('wp_user_id', wpUserId)
+        .maybeSingle(),
+    ]);
+  if (privilegeError) throw privilegeError;
+  if (profileError) throw profileError;
+  return Boolean(privilege) && Boolean(profile?.super_memory_enabled);
+}
 
 const handler = withAuth('content', async (req, user, path) => {
   const url = new URL(req.url);
@@ -761,25 +798,52 @@ const handler = withAuth('content', async (req, user, path) => {
     return json({ ok: true, deleted: ids.length });
   }
 
+  // ---------------------------------------- /merlin-messages/delete (POST)
+  // Deliberately NOT gated on Super Memory being enabled.
+  //
+  // A user who turns the toggle off and then deletes a conversation must still
+  // have that deletion reach the server — otherwise the rows they think they
+  // destroyed sit there until the day they turn Super Memory back on and watch
+  // the whole conversation return. "Stop syncing" and "forget what you synced"
+  // are different requests, and the second must work regardless of the first.
+  if (path === 'merlin-messages/delete' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+
+    // Clearing everything is an explicit, separate intention from deleting a
+    // selection — never inferred from an empty ids array, which is far more
+    // likely to be a bug in the caller than a request to erase a history.
+    if (body?.all === true) {
+      const { error } = await supabase.from('merlin_messages').delete().eq('wp_user_id', user.id);
+      if (error) throw error;
+      console.log(`[content/merlin-messages/delete] user=${user.id} cleared all`);
+      return json({ ok: true, cleared: true });
+    }
+
+    const ids = Array.isArray(body?.ids)
+      ? body.ids.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : [];
+    if (ids.length === 0) return json({ error: 'ids required' }, 400);
+
+    // Scoped by wp_user_id as well as message_id: message ids are
+    // client-generated, so without the scope a crafted id could delete someone
+    // else's message.
+    const { error } = await supabase
+      .from('merlin_messages')
+      .delete()
+      .eq('wp_user_id', user.id)
+      .in('message_id', ids);
+    if (error) throw error;
+
+    return json({ ok: true, deleted: ids.length });
+  }
+
   // ------------------------------------------------ /merlin-messages (both)
   // Super Memory. Gated on the entitlement AND the user's own switch, checked
   // here rather than trusted from the client: a Modwiz Free user must simply
   // have no rows, because storing everyone's chat behind a hidden flag would
   // mean holding data we told people we weren't holding.
   if (path === 'merlin-messages') {
-    const [{ data: privilege, error: privilegeError }, { data: profile, error: profileError }] =
-      await Promise.all([
-        supabase.rpc('is_privilege', { p_wp_user_id: user.id }),
-        supabase
-          .from('profiles')
-          .select('super_memory_enabled')
-          .eq('wp_user_id', user.id)
-          .maybeSingle(),
-      ]);
-    if (privilegeError) throw privilegeError;
-    if (profileError) throw profileError;
-
-    const allowed = Boolean(privilege) && Boolean(profile?.super_memory_enabled);
+    const allowed = await superMemoryAllowed(user.id);
     if (!allowed) {
       // 200, not 403. Super Memory being off is a normal state for most users,
       // and the chat screen asks for history on every open — an error status
@@ -930,6 +994,252 @@ const handler = withAuth('content', async (req, user, path) => {
 
     const row = asRow(data);
     return json(row ? await decryptMandalaRow(row, user.id) : null);
+  }
+
+  // ------------------------------------------------------------ /goal-letter
+  // Surat dari Merlin. SUPER MEMORY ONLY (Rheza, 2026-08-18): the letter is
+  // something Merlin wrote, so it sits with the chat transcript rather than
+  // with the user's own record.
+  //
+  // One row per user, replaced wholesale — the same single-record posture as
+  // the local store, where a new goal reaching Stage 3 overwrites the old
+  // letter. `enabled: false` rather than a 403, same reasoning as
+  // merlin-messages: Super Memory being off is a normal state, and the letter
+  // screen asks on every visit.
+  if (path === 'goal-letter') {
+    if (!(await superMemoryAllowed(user.id))) return json({ enabled: false, letter: null });
+
+    if (req.method === 'GET') {
+      const { data, error } = await supabase
+        .from('goal_letters')
+        .select('status, sealed_at, ready_at, opened_at, snapshot_enc, enc_scheme, key_version')
+        .eq('wp_user_id', user.id)
+        .maybeSingle();
+      if (error) throw error;
+
+      const row = asRow(data);
+      if (!row) return json({ enabled: true, letter: null });
+
+      const plain = await decryptRow(row, ['snapshot'], { wpUserId: user.id });
+      // A snapshot that will not parse is dropped to null rather than returned
+      // half-formed: the letter screen reads deep into this object, and a
+      // partial one is a crash on a screen the user reached by finishing a goal.
+      let snapshot: unknown = null;
+      try {
+        snapshot = plain.snapshot ? JSON.parse(plain.snapshot) : null;
+      } catch {
+        console.warn(`[content/goal-letter] unparseable snapshot for user=${user.id}`);
+      }
+      if (!snapshot) return json({ enabled: true, letter: null });
+
+      return json({
+        enabled: true,
+        letter: {
+          status: row.status as string,
+          snapshot,
+          sealedAt: row.sealed_at as string | null,
+          readyAt: row.ready_at as string | null,
+          openedAt: row.opened_at as string | null,
+        },
+      });
+    }
+
+    if (req.method === 'POST') {
+      const body = await req.json().catch(() => ({}));
+      const status = str(body?.status);
+      if (!status) return json({ error: 'status is required.' }, 400);
+      if (!body?.snapshot) return json({ error: 'snapshot is required.' }, 400);
+
+      const encrypted = await encryptRow(
+        { snapshot: JSON.stringify(body.snapshot) },
+        { wpUserId: user.id },
+      );
+
+      const { error } = await supabase.from('goal_letters').upsert(
+        {
+          wp_user_id: user.id,
+          status,
+          sealed_at: str(body?.sealedAt),
+          ready_at: str(body?.readyAt),
+          opened_at: str(body?.openedAt),
+          updated_at: new Date().toISOString(),
+          ...encrypted,
+        },
+        { onConflict: 'wp_user_id' },
+      );
+      if (error) throw error;
+      return json({ enabled: true, saved: true });
+    }
+  }
+
+  // -------------------------------------------------------- /book-highlights
+  // Rak Buku margin marks. NO TIER CHECK, deliberately — a highlight is the
+  // reader's own work and belongs to the "your life" tier, which syncs for
+  // everyone. Do not add a superMemoryAllowed() call here.
+  if (path === 'book-highlights' && req.method === 'GET') {
+    const { data, error } = await supabase
+      .from('book_highlights')
+      .select('book_id, highlight_id, page, rects, text_enc, note_enc, client_created_at, enc_scheme, key_version')
+      .eq('wp_user_id', user.id)
+      .order('book_id', { ascending: true })
+      .order('page', { ascending: true });
+    if (error) throw error;
+
+    const rows = asRows(data);
+    const highlights = await Promise.all(
+      rows.map(async (row) => {
+        const plain = await decryptRow(row, ['text', 'note'], { wpUserId: user.id });
+        return {
+          bookId: row.book_id as string,
+          id: row.highlight_id as string,
+          page: Number(row.page),
+          rects: row.rects ?? [],
+          text: plain.text ?? '',
+          note: plain.note ?? '',
+          createdAt: (row.client_created_at as string | null) ?? '',
+        };
+      }),
+    );
+    return json(highlights);
+  }
+
+  if (path === 'book-highlights' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const bookId = str(body?.bookId);
+    const highlightId = str(body?.id);
+    const page = Number(body?.page);
+
+    if (!bookId || !highlightId) return json({ error: 'bookId and id are required.' }, 400);
+    if (!Number.isInteger(page) || page < 0) return json({ error: 'page must be a page index.' }, 400);
+
+    const encrypted = await encryptRow(
+      { text: str(body?.text) ?? '', note: str(body?.note) ?? '' },
+      { wpUserId: user.id },
+    );
+
+    const { error } = await supabase.from('book_highlights').upsert(
+      {
+        wp_user_id: user.id,
+        book_id: bookId,
+        highlight_id: highlightId,
+        page,
+        // Geometry stays readable — the reader has to draw these. Defaulted to
+        // an empty array rather than rejected: a mark whose rects did not
+        // survive is still a note worth keeping, and it re-renders as soon as
+        // the device that owns it pushes again.
+        rects: Array.isArray(body?.rects) ? body.rects : [],
+        client_created_at: str(body?.createdAt),
+        updated_at: new Date().toISOString(),
+        ...encrypted,
+      },
+      { onConflict: 'wp_user_id,book_id,highlight_id' },
+    );
+    if (error) throw error;
+    return json({ saved: true });
+  }
+
+  // POST rather than DELETE — bodies on DELETE are patchily handled by proxies,
+  // and this has to work from a phone on a bad network (same call as
+  // /lesson-notes/delete).
+  if (path === 'book-highlights/delete' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((id: unknown) => typeof id === 'string') : [];
+    if (ids.length === 0) return json({ ok: true, deleted: 0 });
+
+    const { error } = await supabase
+      .from('book_highlights')
+      .delete()
+      .eq('wp_user_id', user.id)
+      .in('highlight_id', ids);
+    if (error) throw error;
+    return json({ ok: true, deleted: ids.length });
+  }
+
+  // ------------------------------------------------------- /merlin-favorites
+  // Replies the user kept. SUPER MEMORY ONLY, same rule as the transcript they
+  // came from.
+  if (path === 'merlin-favorites' && req.method === 'GET') {
+    if (!(await superMemoryAllowed(user.id))) return json({ enabled: false, favorites: [] });
+
+    const { data, error } = await supabase
+      .from('merlin_favorites')
+      .select('favorite_id, content_enc, prompt_enc, apprentice_active, client_created_at, client_saved_at, enc_scheme, key_version')
+      .eq('wp_user_id', user.id)
+      .order('client_saved_at', { ascending: false });
+    if (error) throw error;
+
+    const rows = asRows(data);
+    const favorites = await Promise.all(
+      rows.map(async (row) => {
+        const plain = await decryptRow(row, ['content', 'prompt'], { wpUserId: user.id });
+        return {
+          id: row.favorite_id as string,
+          content: plain.content ?? '',
+          // Absent rather than empty: the detail screen shows only the reply
+          // when there was no question, and an empty string would render as a
+          // blank quote above it.
+          ...(plain.prompt ? { prompt: plain.prompt } : {}),
+          createdAt: (row.client_created_at as string | null) ?? '',
+          savedAt: (row.client_saved_at as string | null) ?? '',
+          apprenticeActive: Boolean(row.apprentice_active),
+        };
+      }),
+    );
+    return json({ enabled: true, favorites });
+  }
+
+  if (path === 'merlin-favorites' && req.method === 'POST') {
+    if (!(await superMemoryAllowed(user.id))) return json({ enabled: false, saved: 0 });
+
+    const body = await req.json().catch(() => ({}));
+    const list = Array.isArray(body?.favorites) ? body.favorites : [];
+    if (list.length === 0) return json({ enabled: true, saved: 0 });
+
+    const rows = [];
+    for (const entry of list) {
+      const favoriteId = str(entry?.id);
+      const content = str(entry?.content);
+      // content_enc carries the whole point of the row; a favourite without it
+      // is a pointer to nothing, so it is dropped rather than stored empty.
+      if (!favoriteId || !content) continue;
+
+      const encrypted = await encryptRow(
+        { content, prompt: str(entry?.prompt) },
+        { wpUserId: user.id },
+      );
+      rows.push({
+        wp_user_id: user.id,
+        favorite_id: favoriteId,
+        apprentice_active: boolOrFalse(entry?.apprenticeActive),
+        client_created_at: str(entry?.createdAt),
+        client_saved_at: str(entry?.savedAt),
+        updated_at: new Date().toISOString(),
+        ...encrypted,
+      });
+    }
+    if (rows.length === 0) return json({ enabled: true, saved: 0 });
+
+    const { error } = await supabase
+      .from('merlin_favorites')
+      .upsert(rows, { onConflict: 'wp_user_id,favorite_id' });
+    if (error) throw error;
+    return json({ enabled: true, saved: rows.length });
+  }
+
+  if (path === 'merlin-favorites/delete' && req.method === 'POST') {
+    if (!(await superMemoryAllowed(user.id))) return json({ enabled: false, deleted: 0 });
+
+    const body = await req.json().catch(() => ({}));
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((id: unknown) => typeof id === 'string') : [];
+    if (ids.length === 0) return json({ ok: true, deleted: 0 });
+
+    const { error } = await supabase
+      .from('merlin_favorites')
+      .delete()
+      .eq('wp_user_id', user.id)
+      .in('favorite_id', ids);
+    if (error) throw error;
+    return json({ ok: true, deleted: ids.length });
   }
 
   return json({ error: 'Not found' }, 404);
