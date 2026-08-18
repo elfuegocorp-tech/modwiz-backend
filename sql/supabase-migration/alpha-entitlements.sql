@@ -7,16 +7,22 @@
 -- ROW, and `source = 'comp'` is the case the table was designed around (see
 -- 001_identity_and_entitlements.sql for why this is a table and not a boolean).
 --
--- HOW TO FIND A wp_user_id
+-- HOW TO FIND A wp_user_id — AND WHY IT MATTERS MORE THAN IT LOOKS
 -- It is the WordPress user ID, which is what every table here keys on. In WP
--- admin, open Users -> the person, and read `user_id=NN` from the URL.
+-- admin, open Users -> the person, and read `user_id=NN` from the URL. In the
+-- app itself: Pengaturan -> "Akses Saya" prints the logged-in account's ID.
 --
--- Rheza is 16. Replace/extend the list below with the real testers.
+-- NEVER guess one. A wrong ID here does not fail loudly — it produces a
+-- perfectly correct "Modwiz Free" screen for the person you meant to comp, and
+-- silently hands Modwiz Privilege to whoever that number really is. That cost an
+-- afternoon of debugging the app when the app was right (the guessed ID was 16;
+-- Rheza is 85 on the admin account, 90 on the personal one).
 -- ============================================================================
 
 insert into entitlements (wp_user_id, source, status, note)
 values
-  (16, 'comp', 'active', 'owner — alpha batch 1')
+  (85, 'comp', 'active', 'owner — admin account (elfuegocorp)'),
+  (90, 'comp', 'active', 'owner — personal account')
   -- , (NN, 'comp', 'active', 'alpha tester — batch 1')
 -- Bare ON CONFLICT (no target) so this catches ANY unique violation on the
 -- table — specifically entitlements_one_live_per_user_idx, the partial unique
