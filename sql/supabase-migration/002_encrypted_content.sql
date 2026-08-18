@@ -266,29 +266,82 @@ create index if not exists lesson_notes_user_lesson_idx
 
 
 -- ---------------------------------------------------------------------------
--- agni_chakti_readings — the measurement/reading flow
+-- mandala_readings — every instrument on the Mandala shelf, one table
 -- ---------------------------------------------------------------------------
--- The reading text is AI-generated prose about the user's inner state, which
--- makes it as sensitive as anything they wrote themselves.
-create table if not exists agni_chakti_readings (
+-- Agni Chakti and Manas today; whatever the shelf grows next without a
+-- migration. Per-instrument tables were the obvious shape and the wrong one:
+-- each new instrument would need a table, a route, a sync path and a purge-list
+-- edit, and the four would drift apart the first time someone forgot one.
+--
+-- The cost of one shared table is that the two instruments do not have the same
+-- fields, so the payload cannot be columns. It is split by SENSITIVITY instead,
+-- which is the only axis this layer actually cares about:
+--
+--   data  — jsonb, plain. Scores, raw answers, timestamps. Numbers and fixed
+--           keys, never words. Readable in the dashboard and queryable, which
+--           is the point: a chart over someone's channel drift needs to filter.
+--   prose — encrypted. Anything the USER wrote or the AI wrote ABOUT them:
+--           Agni Chakti's repertoire in their own words, the milestone text,
+--           the disclosure and next-step blocks. Manas has none today and
+--           stores NULL, which is honest rather than an empty string.
+--
+-- Same rule as every other table here (README: "encrypt the prose, leave the
+-- numbers") — ciphertext cannot be sorted or filtered, so encrypting the scores
+-- would break the chart and protect nothing.
+--
+-- REPLACES agni_chakti_readings, which was created in an earlier pass and never
+-- received a single row: no endpoint ever wrote to it. The drop below is
+-- guarded on that being true rather than asserted — see the end of this block.
+create table if not exists mandala_readings (
   id           bigint generated always as identity primary key,
   wp_user_id   bigint not null,
+
+  -- 'agni-chakti' | 'manas' | whatever ships next. Deliberately not an enum:
+  -- a new instrument should need an app release, not a migration.
+  instrument   text not null,
+
+  -- Client-generated, and in practice the measurement's own ISO instant. These
+  -- are written on a phone that may be offline, so the id has to come from the
+  -- device or a re-push would duplicate the reading instead of updating it.
   reading_id   text not null,
   taken_at     timestamptz not null,
-  -- The numeric scores the chart draws from — plain, so the chart can query.
-  scores       jsonb,
 
-  reading_enc  text,
+  data         jsonb,
+
+  prose_enc    text,
   enc_scheme   text,
   key_version  smallint,
 
   created_at   timestamptz not null default now(),
 
-  unique (wp_user_id, reading_id)
+  -- Scoped by instrument as well: two instruments completing in the same
+  -- millisecond is absurd, but a shared id space that only ALMOST collides is
+  -- the kind of thing that fails once, in production, a year from now.
+  unique (wp_user_id, instrument, reading_id)
 );
 
-create index if not exists agni_chakti_user_time_idx
-  on agni_chakti_readings (wp_user_id, taken_at desc);
+create index if not exists mandala_readings_user_time_idx
+  on mandala_readings (wp_user_id, instrument, taken_at desc);
+
+-- The dead shell, removed only if it really is empty. Nothing ever wrote to it
+-- (grep: no endpoint referenced it, the app only ever named it on the Reset
+-- Data receipt), but a guard costs one DO block and being wrong costs a user
+-- their history. If it somehow has rows, this leaves them alone and says so —
+-- re-running after moving them is safe.
+do $$
+declare
+  n bigint;
+begin
+  if to_regclass('public.agni_chakti_readings') is not null then
+    execute 'select count(*) from agni_chakti_readings' into n;
+    if n = 0 then
+      drop table agni_chakti_readings;
+      raise notice 'agni_chakti_readings was empty and has been dropped.';
+    else
+      raise warning 'agni_chakti_readings has % row(s) — left in place. Migrate them into mandala_readings, then re-run.', n;
+    end if;
+  end if;
+end $$;
 
 
 -- ---------------------------------------------------------------------------

@@ -14,6 +14,8 @@
 //   POST /content/lesson-notes/delete
 //   GET  /content/merlin-messages -> chat history   (Super Memory only)
 //   POST /content/merlin-messages -> push messages  (Super Memory only)
+//   GET  /content/mandala        -> every Mandala reading, oldest first
+//   POST /content/mandala        -> upsert one reading
 //
 // One deployment, many routes — Supabase counts deployments the way Vercel
 // counts functions (see sql/supabase-migration/README.md).
@@ -260,6 +262,36 @@ async function decryptLessonNoteRow(row: Row, wpUserId: number) {
 
 // --- helpers -----------------------------------------------------------------
 
+// --- mandala -----------------------------------------------------------------
+
+const MANDALA_COLUMNS =
+  'instrument, reading_id, taken_at, data, prose_enc, enc_scheme, key_version';
+
+async function decryptMandalaRow(row: Row, wpUserId: number) {
+  const plain = await decryptRow(row, ['prose'], { wpUserId });
+
+  // The prose blob went in as JSON and comes back as its string. A row whose
+  // prose fails to parse is handed back WITHOUT it rather than thrown away:
+  // the scores and the date are still the user's reading, and half a reading
+  // beats a 500 that hides the whole history.
+  let prose: unknown = null;
+  if (plain.prose) {
+    try {
+      prose = JSON.parse(plain.prose);
+    } catch {
+      console.warn(`[content/mandala] unparseable prose for user=${wpUserId} reading=${row.reading_id}`);
+    }
+  }
+
+  return {
+    instrument: row.instrument as string,
+    readingId: row.reading_id as string,
+    takenAt: row.taken_at as string,
+    data: row.data ?? null,
+    prose,
+  };
+}
+
 function str(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -283,6 +315,13 @@ function smallint(value: unknown, min: number, max: number): number | null {
 
 function boolOrFalse(value: unknown): boolean {
   return value === true;
+}
+
+/** One kebab-case identifier — an instrument id, never prose. */
+function slug(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  return cleaned.length > 0 && cleaned.length <= 64 ? cleaned : null;
 }
 
 /** Short slug keys from a fixed list (constants/focus-tags.ts), never prose. */
@@ -821,6 +860,76 @@ const handler = withAuth('content', async (req, user, path) => {
 
       return json({ enabled: true, saved: rows.length });
     }
+  }
+
+  // ------------------------------------------------------- /mandala (GET)
+  // Every instrument on the Mandala shelf, one route. NOT gated on Modwiz
+  // Privilege, unlike merlin-messages above, and the difference is deliberate:
+  // chat history is unbounded and its depth is the thing MP actually buys,
+  // while a Mandala reading is a handful of rows someone spent seven minutes
+  // earning. Losing that on a reinstall is a bug for a Free user too. What
+  // tier changes is how much of this Merlin is TOLD (utils/merlin-context.ts),
+  // not whether it survives.
+  if (path === 'mandala' && req.method === 'GET') {
+    const { data, error } = await supabase
+      .from('mandala_readings')
+      .select(MANDALA_COLUMNS)
+      .eq('wp_user_id', user.id)
+      .order('taken_at', { ascending: true });
+    if (error) throw error;
+
+    return json(
+      await Promise.all(asRows(data).map((row) => decryptMandalaRow(row, user.id))),
+    );
+  }
+
+  // ------------------------------------------------------ /mandala (POST)
+  // Upsert, not insert. Agni Chakti writes its measurement first and attaches
+  // the formulated disclosure/next-step blocks a moment later, once the AI
+  // call returns — that second write is the same reading, not a new one.
+  if (path === 'mandala' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+
+    const instrument = slug(body?.instrument);
+    const readingId = str(body?.readingId);
+    const takenAt = str(body?.takenAt);
+    if (!instrument || !readingId || !takenAt) {
+      return json({ error: 'instrument, readingId and takenAt are required.' }, 400);
+    }
+    if (Number.isNaN(Date.parse(takenAt))) return json({ error: 'Unparseable takenAt.' }, 400);
+
+    // `prose` arrives as an object and encryptField JSON-stringifies whatever
+    // isn't already a string, so the shape is the instrument's business, not
+    // this route's. Absent prose (Manas today) encrypts to null, which leaves
+    // enc_scheme/key_version null too — honest, rather than a ciphertext of "".
+    const encrypted = await encryptRow({ prose: body?.prose ?? null }, { wpUserId: user.id });
+
+    const { error } = await supabase.from('mandala_readings').upsert(
+      {
+        wp_user_id: user.id,
+        instrument,
+        reading_id: readingId,
+        taken_at: takenAt,
+        data: body?.data ?? null,
+        enc_scheme: null,
+        key_version: null,
+        ...encrypted,
+      },
+      { onConflict: 'wp_user_id,instrument,reading_id' },
+    );
+    if (error) throw error;
+
+    const { data, error: readError } = await supabase
+      .from('mandala_readings')
+      .select(MANDALA_COLUMNS)
+      .eq('wp_user_id', user.id)
+      .eq('instrument', instrument)
+      .eq('reading_id', readingId)
+      .maybeSingle();
+    if (readError) throw readError;
+
+    const row = asRow(data);
+    return json(row ? await decryptMandalaRow(row, user.id) : null);
   }
 
   return json({ error: 'Not found' }, 404);

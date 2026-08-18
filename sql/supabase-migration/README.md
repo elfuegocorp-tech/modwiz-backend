@@ -10,7 +10,7 @@ same as the existing gamification tables.
 | File | What it does |
 |---|---|
 | `001_identity_and_entitlements.sql` | `profiles`, `entitlements`, `is_privilege()` |
-| `002_encrypted_content.sql` | `checkins`, `mindforge_entries`, `goals`, `merlin_messages`, `lesson_notes`, `agni_chakti_readings` |
+| `002_encrypted_content.sql` | `checkins`, `mindforge_entries`, `goals`, `merlin_messages`, `lesson_notes`, `mandala_readings` |
 | `003_rls_and_purge.sql` | RLS lockdown, `purge_user_content()`, `reset_user_content()` |
 
 Order matters — 003 names tables that 001 and 002 create — so don't paste them
@@ -68,7 +68,8 @@ table and never in the app bundle.
 Vercel (Node) and Supabase Edge Functions (Deno).
 
 Encrypted: journal text, pain/gratitude text, TODAY'S MOVE, goal prose, WFO
-answers, stage confirmations, Merlin chat, lesson notes, Agni Chakti readings.
+answers, stage confirmations, Merlin chat, lesson notes, Mandala readings
+(Agni Chakti's repertoire/goal/reading blocks; Manas has no prose today).
 
 Not encrypted: mood, hati, logika, stage_number, dates, flags, foreign keys.
 Ciphertext can't be sorted or filtered — encrypting a mood score would break

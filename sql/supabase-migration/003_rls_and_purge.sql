@@ -33,13 +33,13 @@ alter table mindforge_entries     enable row level security;
 alter table goals                 enable row level security;
 alter table merlin_messages       enable row level security;
 alter table lesson_notes          enable row level security;
-alter table agni_chakti_readings  enable row level security;
+alter table mandala_readings      enable row level security;
 
 -- Belt and braces: revoke the API roles' table privileges outright, so even a
 -- future accidental `create policy ... using (true)` still can't hand data to
 -- an anon caller.
 revoke all on profiles, entitlements, checkins, mindforge_entries,
-              goals, merlin_messages, lesson_notes, agni_chakti_readings
+              goals, merlin_messages, lesson_notes, mandala_readings
   from anon, authenticated;
 
 
@@ -75,7 +75,7 @@ declare
 begin
   foreach t in array array[
     'checkins', 'mindforge_entries', 'goals', 'merlin_messages',
-    'lesson_notes', 'agni_chakti_readings', 'entitlements', 'profiles',
+    'lesson_notes', 'mandala_readings', 'entitlements', 'profiles',
     -- The existing gamification tables, which key on wp_user_id already.
     'gamification_state', 'xp_events', 'souls_ledger', 'souls_requests'
   ]
@@ -117,7 +117,7 @@ declare
 begin
   foreach t in array array[
     'checkins', 'mindforge_entries', 'goals', 'merlin_messages',
-    'lesson_notes', 'agni_chakti_readings', 'xp_events'
+    'lesson_notes', 'mandala_readings', 'xp_events'
   ]
   loop
     if to_regclass('public.' || t) is not null then
