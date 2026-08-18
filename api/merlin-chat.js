@@ -910,6 +910,9 @@ function formatUserContext(context) {
   const agniChakti = formatAgniChakti(context.agniChakti);
   if (agniChakti) lines.push(agniChakti);
 
+  const manas = formatManas(context.manas);
+  if (manas) lines.push(manas);
+
   return `[KONTEKS USER]\n${lines.join('\n')}`;
 }
 
@@ -975,6 +978,79 @@ function formatAgniChakti(agni) {
     '- Tutup dengan sesuatu yang ADA DI TANGAN DIA — satu langkah yang bisa dia kerjakan minggu ini, disambungkan ke goal-nya. Kalau dia keluar dari obrolan ini merasa "Merlin hebat", kamu gagal. Yang benar dia merasa "ternyata aku sudah punya modalnya".',
     'BATAS KERAS: JANGAN PERNAH mengutip atau menyinggung data Agni Chakti di dalam sebuah ramalan. Boleh membentuk nadamu, tidak boleh disebut — sama seperti metode di balik ramalan yang tidak pernah kamu ucapkan.',
     'Kalau dia tanya arti nama "Agni Chakti", jawabnya: "Itu sebutan buat sesuatu yang sebenarnya sudah lama kamu punya." Jangan pernah menjelaskan asal katanya.'
+  );
+
+  return lines.join('\n');
+}
+
+// Manas — the second Mandala instrument. Like Agni Chakti it is a screen, not
+// a conversation, and only its conclusion arrives here.
+//
+// THE LETTERS NEVER GET HERE. Manas scores four channels keyed V / A / K / Ad
+// internally, and the app deliberately sends their Indonesian names instead —
+// same defence as withholding Agni Chakti's ranks 3 and 4: a key Merlin was
+// never handed is a key he cannot say out loud.
+//
+// Older app builds send no `manas` at all and get no block, exactly like
+// formatAgniChakti.
+function formatManas(manas) {
+  if (!manas || typeof manas !== 'object' || !manas.primary) return '';
+
+  const lines = ['\n[MANAS]'];
+  lines.push(
+    `Bahan yang dia pakai buat merangkai dunianya: ${manas.primary}${
+      manas.primaryMaterial ? ` — ${manas.primaryMaterial}` : ''
+    }.`
+  );
+  if (manas.coPrimary) {
+    lines.push(
+      `Dia jalan dengan dua jalur sekaligus — ${manas.coPrimary} sama kuatnya. Yang satu bukan cadangan buat yang lain.`
+    );
+  }
+  if (manas.sharpest) {
+    lines.push(
+      `Bahan yang paling tajam di dirinya: ${manas.sharpest}${
+        manas.sharpestMaterial ? ` — ${manas.sharpestMaterial}` : ''
+      }.`
+    );
+  }
+  // The gap IS the instrument. Stated outright rather than left for Merlin to
+  // infer from two channel names, because the whole reading turns on it.
+  lines.push(
+    manas.gapMatched
+      ? 'Dua-duanya bahan yang sama: dia sedang bekerja dengan bahan terbaiknya.'
+      : 'Dua-duanya BEDA — bahan terbaiknya hampir nggak pernah dia ambil. Itu inti bacaannya.'
+  );
+  if (typeof manas.daysAgo === 'number') lines.push(`Diukur ${ageLabel(manas.daysAgo)}.`);
+
+  // Same reason as Agni Chakti's disclosure: a second, differently-worded
+  // version of the same reading makes the app and Merlin look like they
+  // disagree about the person.
+  if (manas.reveal) {
+    lines.push(`\nKalimat yang SUDAH dia baca di layar hasilnya, persis begini:\n"${manas.reveal}"`);
+  }
+  if (manas.jarak) {
+    lines.push(`Bacaan soal jarak tadi, juga sudah dia baca:\n"${manas.jarak}"`);
+  }
+  const caraPakai = Array.isArray(manas.caraPakai) ? manas.caraPakai.filter((d) => d && d.text) : [];
+  if (caraPakai.length > 0) {
+    lines.push(
+      'Tiga hal praktis yang layar itu sudah kasih ke dia — jangan diulang, lanjutkan dari sini:',
+      ...caraPakai.map((domain) => `- ${domain.label}: ${domain.text}`)
+    );
+  }
+
+  lines.push(
+    '\nCARA PAKAI — ini yang paling berharga: pakai bahannya waktu kamu MENJELASKAN apa pun ke dia. Orang yang jalan lewat penglihatan butuh gambaran; lewat pendengaran butuh irama dan nada; lewat badan butuh sesuatu yang bisa dia rasakan atau kerjakan; lewat suara dalam kepala butuh kalimat yang bisa dia bantah dan selesaikan. Itu membentuk CARA kamu bicara, bukan bahan obrolan. Kalau dia tidak menyinggungnya, kamu juga tidak.',
+    'KALAU DIA MINTA DIJELASKAN (misalnya dia membuka chat dengan "bantu aku pahami hasil Manas-ku"): itu izin, jelaskan. Aturannya:',
+    '- Jangan mengulang kalimat di layar apa adanya. Dia sudah membacanya. Bawa satu langkah lebih jauh, disambungkan ke goal atau ke yang lagi dia hadapi.',
+    '- Kalau bahan yang dia pakai dan bahan yang paling tajam BEDA, itu berita utamanya. Bukan cacat, bukan kesalahan — cuma pintu yang belum pernah diketuk.',
+    '- Ini KEADAAN, bukan tipe kepribadian dan bukan identitas permanen. Alatnya bisa diulang dan hasilnya bisa berubah. Jangan sekali-kali bilang "kamu memang orangnya begitu".',
+    '- DILARANG KERAS bilang atau menyiratkan ini gaya belajar — "kamu visual, jadi belajarlah lewat gambar" itu klaim yang tidak benar dan kita tidak pernah membuatnya. Ini soal bagaimana dia mengakses dan merangkai pengalaman, bukan cara belajar yang lebih efisien.',
+    '- Jangan pernah menyebut huruf, singkatan, atau nama kerangka teori apa pun di balik alat ini, dan jangan pernah bilang ada tradisi kuno yang "sudah tahu duluan".',
+    '- Tidak ada jalur yang lebih tinggi dari jalur lain. Jangan pernah membandingkan dia dengan orang lain.',
+    'BATAS KERAS: JANGAN PERNAH mengutip atau menyinggung data Manas di dalam sebuah ramalan — sama persis seperti Agni Chakti. Boleh membentuk nadamu, tidak boleh disebut.',
+    'Kalau dia tanya arti nama "Manas", jawab pendek: "Yang merangkai semua yang masuk jadi satu dunia yang utuh." Cukup satu kalimat, jangan diceramahi.'
   );
 
   return lines.join('\n');

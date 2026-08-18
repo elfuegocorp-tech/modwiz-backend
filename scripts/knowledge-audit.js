@@ -50,6 +50,7 @@ const ROUTE_TO_CARD = {
   'stage/confirm': 'stages-of-goals',
   'realitas-saya': 'realitas-saya',
   'agni-chakti': 'agni-chakti',
+  'manas': 'manas',
   'shop': 'toko-souls',
   'quote': 'today-wisdom',
   'wisdom': 'today-wisdom',
