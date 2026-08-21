@@ -102,12 +102,15 @@ module.exports = async function handler(req, res) {
       return;
     }
     try {
+      // Hiding also stamps WHEN — the "week you hide is a week you sit out"
+      // rule (lib/leaderboard.js) needs the moment, not just the flag, so a
+      // mid-week un-hide can't un-happen the hide. Un-hiding deliberately
+      // leaves the stamp alone: "last time you hid" stays true.
+      const update = { wp_user_id: wpUserId, leaderboard_hidden: hidden, updated_at: new Date().toISOString() };
+      if (hidden) update.leaderboard_hidden_at = update.updated_at;
       const { error } = await supabase
         .from('gamification_state')
-        .upsert(
-          { wp_user_id: wpUserId, leaderboard_hidden: hidden, updated_at: new Date().toISOString() },
-          { onConflict: 'wp_user_id' }
-        );
+        .upsert(update, { onConflict: 'wp_user_id' });
       if (error) throw error;
       res.status(200).json({ ok: true, leaderboardHidden: hidden });
     } catch (err) {

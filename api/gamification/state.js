@@ -18,7 +18,7 @@
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/energy');
-const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
+const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards, hidAtSomePointDuring } = require('../../lib/leaderboard');
 const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
 const { listUnlocks } = require('../../lib/store-products');
 
@@ -93,11 +93,16 @@ module.exports = async function handler(req, res) {
       // "tersembunyi" instead of "belum ada XP".
       const { data: myState, error: myStateError } = await supabase
         .from('gamification_state')
-        .select('leaderboard_hidden')
+        .select('leaderboard_hidden, leaderboard_hidden_at')
         .eq('wp_user_id', wpUser.id)
         .maybeSingle();
       if (myStateError) throw myStateError;
       const iAmHidden = myState?.leaderboard_hidden === true;
+      // Flag off, but they hid at some point THIS week — the sit-out rule
+      // (lib/leaderboard.js) keeps them off the board and out of the prize
+      // until Monday. The card must say so, or "Tampilkan lagi" looks broken:
+      // they'd tap it, the flag would flip, and nothing visible would change.
+      const iAmSittingOut = !iAmHidden && hidAtSomePointDuring(myState, weekStartUtc, weekEndUtc);
 
       const mine = ranking.find((r) => r.wpUserId === wpUser.id) ?? null;
       // Indexed into `visible`, not `ranking` — the person one rank above me
@@ -122,6 +127,7 @@ module.exports = async function handler(req, res) {
           // "no XP yet this week".
           rank: mine ? mine.rank : null,
           hidden: iAmHidden,
+          sittingOut: iAmSittingOut,
           wpUserId: wpUser.id,
           firstName: mine ? mine.firstName : null,
           avatarUrl: mine ? mine.avatarUrl : null,
