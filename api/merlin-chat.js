@@ -1,6 +1,7 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset, WEEKLY_ENERGY_MAX } = require('../lib/energy');
 const { supabase } = require('../lib/supabase');
+const { sendExpoPush } = require('../lib/expo-push');
 const { listSkillEntitlements } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
@@ -1381,6 +1382,70 @@ function extractMarkers(text) {
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
 // re-checking their WordPress Application Password credentials against WP
 // itself — the same Authorization header the app already sends WordPress.
+// --- Pending replies ---------------------------------------------------------
+//
+// The safety net for a reply generated while the app was already closed. The
+// app's fetch dies with the app, but this function keeps running — so the
+// finished reply is parked in `merlin_pending_replies` (keyed by the user +
+// the id of the user message it answers) and a push notification tells the
+// user Merlin has finished. On next open, the app claims the row by that same
+// turn id and the reply lands in the transcript as if nothing happened.
+//
+// This is delivery-in-transit, NOT chat storage — Free users are promised
+// their chat isn't held server-side (see the app's Super Memory comment). So
+// a row lives only until it's claimed (the app acks, we delete), superseded
+// (a newer turn from the same user replaces it), or stale (the purge below).
+const PENDING_REPLY_MAX_AGE_HOURS = 48;
+
+async function savePendingReply(wpUserId, turnId, payload) {
+  // One pending row per user: a new turn supersedes the old one (the app only
+  // ever resumes its LAST unanswered message), and the delete doubles as the
+  // cleanup for rows that were delivered live but never acked.
+  await supabase.from('merlin_pending_replies').delete().eq('wp_user_id', wpUserId);
+  const { error } = await supabase
+    .from('merlin_pending_replies')
+    .insert({ wp_user_id: wpUserId, turn_id: turnId, payload });
+  if (error) throw error;
+  // Opportunistic global purge so an abandoned reply for a user who never
+  // returns doesn't sit here indefinitely. Cheap: indexed delete, usually 0
+  // rows. Awaited on purpose — a floating promise in a serverless function
+  // can be frozen the moment the response ends.
+  const cutoff = new Date(Date.now() - PENDING_REPLY_MAX_AGE_HOURS * 3600 * 1000).toISOString();
+  const { error: purgeErr } = await supabase.from('merlin_pending_replies').delete().lt('created_at', cutoff);
+  if (purgeErr) console.error('Pending-reply purge failed:', purgeErr);
+}
+
+// GET side of the same feature: ?claim=<turnId> hands back the parked reply
+// (without deleting it — the app confirms it saved the reply locally with a
+// second ?ack=<turnId> call, so a response lost in transit can be re-claimed
+// instead of being lost the exact way this feature exists to prevent).
+async function handlePendingReply(req, res, wpUserId) {
+  const { claim, ack } = req.query || {};
+
+  if (typeof ack === 'string' && ack) {
+    await supabase.from('merlin_pending_replies').delete().eq('wp_user_id', wpUserId).eq('turn_id', ack);
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  if (typeof claim === 'string' && claim) {
+    const { data, error } = await supabase
+      .from('merlin_pending_replies')
+      .select('payload')
+      .eq('wp_user_id', wpUserId)
+      .eq('turn_id', claim)
+      .maybeSingle();
+    if (error) {
+      res.status(500).json({ error: 'Could not read pending reply' });
+      return;
+    }
+    res.status(200).json(data ? { found: true, payload: data.payload } : { found: false });
+    return;
+  }
+
+  res.status(400).json({ error: 'Expected ?claim=<turnId> or ?ack=<turnId>' });
+}
+
 async function verifyWpUser(authHeader) {
   const res = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/users/me`, {
     headers: { Authorization: authHeader },
@@ -1432,7 +1497,10 @@ function isValidMessages(messages) {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
+  // GET is the pending-reply side door (claim/ack) — see handlePendingReply.
+  // Folded into this function rather than its own api/ file because the
+  // backend sits at Vercel's 12-function cap; a 13th would silently 404.
+  if (req.method !== 'POST' && req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
@@ -1449,7 +1517,12 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { messages, context, ramalan, garisTangan, skills: sentSkills } = req.body || {};
+  if (req.method === 'GET') {
+    await handlePendingReply(req, res, wpUserId);
+    return;
+  }
+
+  const { messages, context, ramalan, garisTangan, skills: sentSkills, turnId, pushToken } = req.body || {};
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -1700,7 +1773,7 @@ module.exports = async function handler(req, res) {
       return null;
     });
 
-    res.status(200).json({
+    const payload = {
       reply,
       ramalanGiven,
       garisTanganGiven,
@@ -1712,7 +1785,31 @@ module.exports = async function handler(req, res) {
       energyCurrent: energyAfter ? energyAfter.energyCurrent : undefined,
       energyMax: energyAfter ? energyAfter.energyMax : undefined,
       extraEnergy: energyAfter ? energyAfter.extraEnergy : undefined,
-    });
+    };
+
+    // Park the finished reply and notify the device BEFORE responding — the
+    // one ordering that guarantees the reply survives no matter when the app
+    // died. If the user is still watching the chat, the app suppresses the
+    // banner itself (see the app's notification handler), so pushing on every
+    // turn is safe. No turnId means the proactive-opener path (or an old app
+    // build) — those stay fire-and-forget by design.
+    if (typeof turnId === 'string' && turnId && turnId.length <= 64) {
+      try {
+        await savePendingReply(wpUserId, turnId, payload);
+        if (pushToken) {
+          await sendExpoPush(pushToken, {
+            title: 'Merlin',
+            body: 'Jawabanku sudah siap — buka kapan pun kamu sempat.',
+            data: { type: 'merlin_reply', route: '/merlin' },
+          });
+        }
+      } catch (pendingErr) {
+        // The live response path still works without the net.
+        console.error('Could not park Merlin pending reply:', pendingErr);
+      }
+    }
+
+    res.status(200).json(payload);
   } catch (err) {
     console.error('Merlin/Anthropic error:', err);
     res.status(502).json({ error: 'Merlin is unreachable right now. Please try again in a moment.' });
