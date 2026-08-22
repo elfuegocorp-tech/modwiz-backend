@@ -151,7 +151,7 @@ MILESTONE SAYA / WELL-FORMED OUTCOME (the extra answers in their block): the fea
 
 When the block shows that goal was written today or yesterday, they have just come out of that flow — usually tapping straight through from the screen that congratulates them. Do not re-ask what they have just spent eight screens answering; it is all in front of you, and asking reads as not having looked. Open by reflecting one thing back in their own words — the vision or the ripple effect, whichever is more specific — and then give ONE concrete first step they could take this week. One, not a menu, and small enough to actually happen. A brand-new goal is the moment someone is most motivated and least sure what to do on Monday; the whole value you add here is closing that gap.
 
-IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (set three goals for the day), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
+IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (a morning check-in — mood, what it comes from, three optional goals for the day, an optional journal — plus a guided meditation), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
 Three of these can become an actual tappable button under your reply instead of just a name for them to go find — Agni Chakti (the measurement/reading flow), the Realitas Saya chart, and the goal wizard (Stages of Goals / their Reality Map). When your advice genuinely lands on one of these — you're telling them to take an Agni Chakti reading, go look at their trend, or open the goal wizard — end that reply with one line, alone at the very end: [[ACTION:AGNI_CHAKTI]], [[ACTION:REALITAS_SAYA]], or [[ACTION:GOAL_WIZARD]]. The app turns that line into a button and strips it from what the user reads. Never mention it, never explain it, and never send more than one per reply. Only send it when you would have named that exact feature anyway — it's a convenience for a recommendation you already made, never a reason to manufacture one you otherwise wouldn't.
 
@@ -164,7 +164,7 @@ Pick exactly ONE thing to lead with (a second may follow only if it flows as one
 1. STATUS: user BARU in the block — this is genuinely their first conversation with you. Welcome them properly: a little of who you are, what you can actually help with, and one open, easy question to get them talking (what they're working on, or what brought them here) — never a wall of features.
 2. Check-ins gone cold — the block tells you how long since any check-in and since the last evening one. Days of silence is the loudest gap there is, because everything else you know about them thins out with it. Name the ritual you mean: PRIMING in the morning, COSMIC at night. Make coming back small — one ritual tonight, not a restored routine. Never having checked in at night at all belongs here too, and there it is worth saying plainly that this is why their Realitas Saya chart is still locked.
 3. No Reality Map at all — no written goal, so there is no milestone for anything else to hang off. That outranks every lesson and every reading: point them into the milestone wizard, and end with [[ACTION:GOAL_WIZARD]].
-4. Today's ritual still open — no PRIMING yet today (the three goals unset), or PRIMING goals set this morning and still unfinished while the live hour says the day is nearly gone. This is the one rung where the real part of day decides whether it fires at all; even here the ritual is the subject, never the hour.
+4. Today's ritual still open — the block says no PRIMING check-in yet today, or PRIMING goals set this morning and still unfinished while the live hour says the day is nearly gone. A PRIMING that WAS done with the goals left blank is not an open ritual — the goals are optional there, and the block says so when that is the case. This is the one rung where the real part of day decides whether it fires at all; even here the ritual is the subject, never the hour.
 5. A course standing still. Best case, the block carries the curriculum outline: name the exact next [BELUM] lesson by its real title — that is the most actionable sentence you can send anybody. Otherwise a course untouched for days, every course but one still at 0% (see the CATATAN line, when present), or none owned at all.
 6. Never taken an Agni Chakti reading, or the last one is months old while their life has visibly moved since. It is short, it costs them nothing, and it is measured against the goal they already wrote, so it sharpens everything you do afterwards; end with [[ACTION:AGNI_CHAKTI]]. Agni Chakti is the ONLY instrument you may ever open on — never open by pointing at something they would have to unlock first. The Toko advertises; you do not.
 7. Nothing is actually stale — check-ins current, written today, milestone alive, lessons moving. Do NOT fall back to a greeting here. Lead with the forward step, still a nameable thing: the next lesson in the course they're genuinely moving through, the stage they're close enough to declare in Stages of Goals, the deadline drawing in on their milestone, or a heavy night or a real win from the last day or two that deserves following up in their own words. If they already did today's ritual, say so in one warm clause — a thing they showed up and did should never go unremarked — but the sentence after it still has to be about something real.
@@ -549,6 +549,153 @@ function partOfDay(hour) {
   return 'dini hari'; // 23:00–03:59 — the "belum tidur?" window
 }
 
+// --- Today's rituals -------------------------------------------------------
+//
+// The check-in and the meditation are two independent halves of each ritual
+// page (the app never funnels one into the other), so they are reported as
+// two facts and Merlin is told not to infer one from the other. Inside a
+// check-in, a skipped field is a CHOICE the wizard allows — the briefing says
+// so in words, because the alternative ("tidak menulis goal") reads to a model
+// like a shortfall to be corrected, and a journal written without goals is a
+// whole ritual, not a half one.
+
+const RITUAL_JUST_NOW_MINUTES = 15;
+
+function ritualRecency(minutesAgo) {
+  if (typeof minutesAgo !== 'number') return '';
+  if (minutesAgo < RITUAL_JUST_NOW_MINUTES) return ' — BARU SAJA diisi, sebelum pesan ini dikirim';
+  if (minutesAgo < 60) return ` — diisi ${minutesAgo} menit lalu`;
+  return ` — diisi ${Math.round(minutesAgo / 60)} jam lalu`;
+}
+
+function listOr(items, emptyLabel) {
+  return Array.isArray(items) && items.length ? items.join(', ') : emptyLabel;
+}
+
+function formatTodayRituals(rituals) {
+  const lines = [];
+  const morning = rituals.morning;
+  if (morning && typeof morning === 'object') {
+    const parts = [];
+    if (typeof morning.mood === 'number') parts.push(`mood ${morning.mood}/5`);
+    parts.push(`yang dia pilih sebagai sumber perasaannya: ${listOr(morning.focusTags, 'tidak memilih (boleh dilewati)')}`);
+    const goals = Array.isArray(morning.goals) ? morning.goals : [];
+    parts.push(
+      goals.length
+        ? `3 goal hari ini: ${goals.join('; ')} — status selesai/belum baru terisi nanti malam lewat COSMIC`
+        : 'goal hari ini: dia memilih TIDAK menulis goal. Itu diizinkan app dan BUKAN tanda ritualnya tidak selesai — jangan diperlakukan sebagai kekurangan, cukup boleh ditanyakan dengan ringan kalau relevan'
+    );
+    parts.push(morning.journal ? `jurnal pagi: "${morning.journal}"` : 'jurnal pagi: kolomnya dikosongkan');
+    lines.push(`PRIMING (check-in pagi) HARI INI: SUDAH${ritualRecency(morning.minutesAgo)}. ${parts.join('. ')}.`);
+  } else {
+    lines.push('PRIMING (check-in pagi) HARI INI: belum.');
+  }
+
+  const evening = rituals.evening;
+  if (evening && typeof evening === 'object') {
+    const parts = [];
+    if (typeof evening.mood === 'number') parts.push(`mood ${evening.mood}/5`);
+    parts.push(`sumber perasaannya malam ini: ${listOr(evening.focusTags, 'tidak memilih')}`);
+    const goals = Array.isArray(evening.goals) ? evening.goals : [];
+    if (goals.length) {
+      const done = goals.filter((g) => g && g.done).length;
+      parts.push(
+        `review goal PRIMING (${done}/${goals.length} selesai): ` +
+          goals.map((g) => `${g.text} (${g.done ? 'SELESAI' : 'belum'})`).join('; ')
+      );
+    } else {
+      parts.push('tidak ada goal pagi untuk di-review');
+    }
+    if (typeof evening.hati === 'number' || typeof evening.logika === 'number') {
+      parts.push(
+        `slider Yakin (hati) ${typeof evening.hati === 'number' ? evening.hati : '-'}/10, Nyata (logika) ${typeof evening.logika === 'number' ? evening.logika : '-'}/10`
+      );
+    }
+    parts.push(
+      evening.gratitude && evening.gratitude.text
+        ? `yang baik dari hari ini, kata dia: "${evening.gratitude.text}"${evening.gratitude.marked ? ' (dia tandai ✦ di peta Realitas Saya)' : ' (privat — tidak dia tandai di peta, jadi jangan sebut "tanda" apa pun)'}`
+        : 'yang baik dari hari ini: tidak diisi'
+    );
+    parts.push(
+      evening.pain
+        ? `yang BERAT hari ini, kata dia sendiri: "${evening.pain}" — ini jawabannya untuk ★ "Ada yang berat hari ini?", dan karena memang HARI INI, ini layak disebut`
+        : 'yang berat hari ini: dia bilang tidak ada / tidak diisi'
+    );
+    parts.push(evening.journal ? `jurnal malam: "${evening.journal}"` : 'jurnal malam: kolomnya dikosongkan');
+    lines.push(`COSMIC (check-in malam) HARI INI: SUDAH${ritualRecency(evening.minutesAgo)}. ${parts.join('. ')}.`);
+  } else {
+    lines.push('COSMIC (check-in malam) HARI INI: belum.');
+  }
+
+  lines.push(
+    'Kalau dia minta kamu membaca ritualnya, bacalah SEMUA unsur di atas yang ada — mood, sumber perasaan, goal, jurnal, yang baik, yang berat, meditasi — dan sebut unsur yang dia lewati sebagai pilihan, bukan kekurangan. Satu jurnal tanpa goal tetap satu ritual yang utuh dan layak dibaca sungguh-sungguh.'
+  );
+  return lines;
+}
+
+// Builds before todayRituals existed: todayGoals is null both when PRIMING
+// wasn't done and when it was done without goals. The dated morning mood in
+// recentMoods is the tie-breaker — a morning entry dated today IS a PRIMING.
+function formatLegacyTodayGoals(context) {
+  const todayGoals = context.todayGoals;
+  if (todayGoals && Array.isArray(todayGoals.goals) && todayGoals.goals.length) {
+    const done = Array.isArray(todayGoals.goalsDone) ? todayGoals.goalsDone : null;
+    const rendered = todayGoals.goals
+      .map((goal, i) => (done ? `${goal} (${done[i] ? 'SELESAI' : 'belum selesai'})` : goal))
+      .join('; ');
+    return [
+      `3 goal PRIMING yang dia tetapkan untuk HARI INI: ${rendered}` +
+        (done ? '' : ' — status selesai/belum baru terisi nanti malam lewat COSMIC.'),
+    ];
+  }
+  const moods = context.reality && Array.isArray(context.reality.recentMoods) ? context.reality.recentMoods : [];
+  const primedToday = moods.some(
+    (entry) => entry && typeof entry === 'object' && entry.type === 'morning' && entry.date === context.today
+  );
+  return [
+    primedToday
+      ? 'PRIMING (check-in pagi) HARI INI: SUDAH, tapi dia memilih tidak menulis 3 goal — itu diizinkan app dan bukan tanda ritualnya tidak selesai.'
+      : 'Belum PRIMING (check-in pagi) hari ini.',
+  ];
+}
+
+// Which meditations were actually finished today. A finished session leaves
+// exactly one trace anywhere — its daily XP row in xp_events, keyed on the
+// device's own local date (the same `today` the context carries) — so this is
+// read server-side and needs no app build to start showing up. null when the
+// read failed or the build sent no usable `today`: then nothing is claimed.
+const SESSION_ACTIONS = ['priming_session', 'ignite_session', 'cosmic_session'];
+const IGNITE_LABELS = { create: 'CREATE', calm: 'CALM', ready: 'READY' };
+
+async function fetchTodaySessions(wpUserId, today) {
+  if (typeof today !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  const { data, error } = await supabase
+    .from('xp_events')
+    .select('action_type, ref_id')
+    .eq('wp_user_id', wpUserId)
+    .eq('local_date', today)
+    .in('action_type', SESSION_ACTIONS);
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    priming: rows.some((r) => r.action_type === 'priming_session'),
+    cosmic: rows.some((r) => r.action_type === 'cosmic_session'),
+    ignite: rows
+      .filter((r) => r.action_type === 'ignite_session')
+      .map((r) => IGNITE_LABELS[r.ref_id] || String(r.ref_id || '').toUpperCase())
+      .filter(Boolean),
+  };
+}
+
+function formatTodaySessions(sessions) {
+  if (!sessions || typeof sessions !== 'object') return [];
+  const ignite = sessions.ignite.length ? `sudah (${sessions.ignite.join(', ')})` : 'belum';
+  return [
+    `Meditasi yang benar-benar dia SELESAIKAN hari ini (dari catatan sesi, bukan tebakan): Ritual Pagi PRIMING ${sessions.priming ? 'sudah' : 'belum'}; Ritual Siang IGNITE ${ignite}; Ritual Malam COSMIC ${sessions.cosmic ? 'sudah' : 'belum'}.`,
+    'Check-in dan meditasi adalah dua bagian TERPISAH dari ritual yang sama — orang bisa mengisi check-in tanpa bermeditasi, atau sebaliknya. Jangan pakai yang satu sebagai bukti yang lain, dan jangan menyebut dia "sudah meditasi" kalau baris ini bilang belum.',
+  ];
+}
+
 // Turns the app's fact-only context object into the text Merlin actually
 // reads. Deliberately lives here and not in the app: wording changes ship
 // with a Vercel deploy, not an app-store release.
@@ -564,7 +711,7 @@ function partOfDay(hour) {
 // `today`, no `writtenDaysAgo`) — the backend redeploys instantly, the app
 // only at the next store release, and the worst of these bugs must not have
 // to wait for that.
-function formatUserContext(context) {
+function formatUserContext(context, sessions) {
   if (!context || typeof context !== 'object') return '';
 
   const lines = [];
@@ -834,23 +981,24 @@ function formatUserContext(context) {
     );
   }
 
-  // PRIMING's 3 goals for today (Ritual Pagi), optionally checked off by
-  // COSMIC (Ritual Malam). null means he hasn't done PRIMING yet today —
-  // worth naming so you can nudge him toward it by name, same as any other
-  // ritual gap above.
-  const todayGoals = context.todayGoals;
-  if (todayGoals && Array.isArray(todayGoals.goals) && todayGoals.goals.length) {
-    const done = Array.isArray(todayGoals.goalsDone) ? todayGoals.goalsDone : null;
-    const rendered = todayGoals.goals
-      .map((goal, i) => (done ? `${goal} (${done[i] ? 'SELESAI' : 'belum selesai'})` : goal))
-      .join('; ');
-    lines.push(
-      `3 goal PRIMING yang dia tetapkan untuk HARI INI: ${rendered}` +
-        (done ? '' : ' — status selesai/belum baru terisi nanti malam lewat COSMIC.')
-    );
+  // Today's rituals, each reported whole. Current builds send todayRituals —
+  // every field of the morning and evening check-in, present or skipped —
+  // so "did PRIMING" and "wrote 3 goals" are two facts. Older builds only
+  // send todayGoals, and for years this block turned its null into "belum
+  // PRIMING hari ini" even when the user HAD checked in that morning and
+  // simply left the (optional) goals blank — while the journal line a few
+  // rows up said they wrote it seconds ago. Asked to read a morning ritual
+  // he had just been told didn't happen, Merlin froze. The legacy branch now
+  // tells the two apart from the dated morning mood instead.
+  const rituals = context.todayRituals;
+  if (rituals && typeof rituals === 'object') {
+    lines.push(...formatTodayRituals(rituals));
   } else {
-    lines.push('Belum PRIMING (belum menetapkan 3 goal) hari ini.');
+    lines.push(...formatLegacyTodayGoals(context));
   }
+  // Server-owned, independent of the build: which meditations were actually
+  // finished today, from the XP ledger (see fetchTodaySessions).
+  lines.push(...formatTodaySessions(sessions));
 
   // "Fokusmu Minggu Ini" — ke mana energinya pergi, dikelompokkan per arah.
   // Vonisnya ikut dikirim, bukan dihitung ulang di sini, supaya Merlin tidak
@@ -1677,8 +1825,15 @@ module.exports = async function handler(req, res) {
   // block for a skill they haven't unlocked is dropped entirely rather than
   // sent alongside — telling Merlin both "you can't do this" and "your turn
   // has come around" in the same briefing is an argument, not a rule.
+  // Best-effort: a ledger read must never block the chat. null → nothing
+  // claimed about meditation either way.
+  const sessions = await fetchTodaySessions(wpUserId, context && context.today).catch((err) => {
+    console.error('Merlin today-sessions read failed, skipping:', err);
+    return null;
+  });
+
   const briefing = [
-    formatUserContext(context),
+    formatUserContext(context, sessions),
     formatSkillGate(skills),
     skillOpen(skills, 'ramalan') ? formatRamalanRule(ramalan) : '',
     skillOpen(skills, 'garisTangan') ? formatGarisTanganRule(garisTangan) : '',
