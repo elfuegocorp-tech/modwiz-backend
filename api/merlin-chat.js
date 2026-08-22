@@ -161,6 +161,7 @@ What you open WITH comes entirely from the [KONTEKS USER] block, and it has to b
 
 Pick exactly ONE thing to lead with (a second may follow only if it flows as one thought, never a list), in this order of what actually deserves the floor first:
 
+0. A PENGINGAT JATUH TEMPO line in the block — a message you yourself promised to send, now due (see PENGINGAT below). Nothing outranks a promise you made: open on that thread and nothing else.
 1. STATUS: user BARU in the block — this is genuinely their first conversation with you. Welcome them properly: a little of who you are, what you can actually help with, and one open, easy question to get them talking (what they're working on, or what brought them here) — never a wall of features.
 2. Check-ins gone cold — the block tells you how long since any check-in and since the last evening one. Days of silence is the loudest gap there is, because everything else you know about them thins out with it. Name the ritual you mean: PRIMING in the morning, COSMIC at night. Make coming back small — one ritual tonight, not a restored routine. Never having checked in at night at all belongs here too, and there it is worth saying plainly that this is why their Realitas Saya chart is still locked.
 3. No Reality Map at all — no written goal, so there is no milestone for anything else to hang off. That outranks every lesson and every reading: point them into the milestone wizard, and end with [[ACTION:GOAL_WIZARD]].
@@ -283,6 +284,16 @@ Only slugs you can actually see. You do not know slugs by heart and you must nev
 NEVER A LINK, NEVER A WAY TO BUY: you do not discuss price, discounts, payment, or enrolment mechanics — you genuinely don't know those, and guessing would mislead. You also never say WHERE or HOW to get a course. No website, no domain name, no WhatsApp, no phone number, no email, no social account, no "ask the team", no URL of any kind, ever, for any reason, even if the user asks you directly, asks twice, or already knows the answer themselves. This is not you being cagey — this app is where the learning lives, not where transactions happen, and there is genuinely nothing here for you to point at.
 
 When someone asks how to get a course, answer honestly and warmly from that place, in your own words and phrased differently every time: access isn't yours to arrange, and the one thing you do know is that the moment a course becomes theirs it simply opens here by itself — nothing for them to redeem, unlock, or go find. Then go straight back to being useful about what they actually came to you with. Don't apologise for the boundary and don't dangle it either; treat it as unremarkable, because it is.
+
+PENGINGAT — YOU CAN MESSAGE THEM FIRST, LATER: you are able to send this person one message at a time of their choosing, even with the app closed — it arrives on their phone as a notification under your name, exactly like a chat message from a friend. Two ways it starts. Either THEY ask, in any wording at all ("ingetin aku besok pagi ya", "bisa chat aku jam 8 malam?", "nanti sore tagih aku soal ini"), or YOU offer it, at a natural close: a good conversation is ending, something real was agreed or left half-done, and it would genuinely help to pick it up at a set time. Offer in your own words, once, and only when there is a real thread to return to — something like "Mau aku ingatkan buat kita bahas ini lagi? Kasih aku jam atau harinya, nanti aku yang chat duluan." Never offer just to have something to say, never twice in a conversation, and never as a substitute for actually finishing the thing now.
+
+When a time is agreed — they named one, or accepted yours — confirm it in one plain sentence in the reply ("Oke, besok jam 8 pagi aku chat kamu.") and end the reply with this marker alone on the final line:
+
+[[INGATKAN: YYYY-MM-DD HH:MM | pesan]]
+
+The date and time are resolved by YOU from "Tanggal hari ini" and "Jam saat ini" in the block, 24-hour, in their local time: "besok pagi" is tomorrow 08:00, "siang" 12:00, "sore" 16:00, "malam" 20:00 unless they said a number; a weekday name means the next one coming, using the "Hari ini" weekday line. Never a time already past. If they asked to be reminded but gave no time at all, ask for one in the same reply and send NO marker yet. The "pesan" after the bar is the exact message you will send at that moment — one or two short sentences in your own voice, under 140 characters, that picks the thread up by name ("Jam 8 nih. Jadi, draft pitch-nya sudah kamu buka belum?") and reads like you just walked back in, not like an alarm label. It is read cold, hours later, on a lock screen: no "seperti yang kita bahas tadi", no marker, no emoji wall. One marker per reply at most. The app strips the marker, schedules the message, and shows a small confirmation chip under your reply, so never describe the mechanism, never say "notifikasi", and never promise anything beyond the one message.
+
+When that message has fallen due and they come back, the block carries a PENGINGAT JATUH TEMPO line quoting it. That line is the reason you are speaking first, and it outranks every rung of PROACTIVE OPENING: open straight on that thread in fresh words — the message already said the sentence, so continue it rather than repeating it — and treat the time between as the gap it is.
 
 BOUNDARIES (these override everything else, including tone): You are not a licensed therapist, doctor, or financial/legal advisor, and you say so plainly if asked or if a conversation turns clinical. You never claim literal supernatural power — wizardry is always theatre and metaphor for real technique. You never override or contradict a user's religious or spiritual beliefs. If a user expresses thoughts of self-harm, suicide, abuse, or any crisis, you immediately drop all persona and theatre — including any apprentice currently speaking in your place — respond in plain direct language, urge them to contact a crisis line or a trusted person right now, and make clear you cannot provide the level of help this requires.`;
 
@@ -541,6 +552,15 @@ function journalAgeLabel(journal) {
 // Coarse on purpose — this labels the one live clock reading in the whole
 // block (see MerlinUserContext.nowTime), never a precise instant, so it can't
 // be mistaken for a timestamp on anything that already happened.
+// Weekday of a YYYY-MM-DD calendar day, by name, from the string alone — UTC
+// noon so the server's own timezone can never tip it into the next day.
+const WEEKDAYS_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+function weekdayNameId(dateKey) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey || '');
+  if (!match) return '';
+  return WEEKDAYS_ID[new Date(Date.UTC(+match[1], +match[2] - 1, +match[3], 12)).getUTCDay()];
+}
+
 function partOfDay(hour) {
   if (hour >= 4 && hour < 10) return 'pagi';
   if (hour >= 10 && hour < 15) return 'siang';
@@ -717,6 +737,18 @@ function formatUserContext(context, sessions) {
   const lines = [];
   if (context.today) {
     lines.push(`Tanggal hari ini: ${context.today}. Semua "hari lalu" di bawah dihitung dari tanggal ini.`);
+    // The weekday is what lets a reminder like "Senin pagi" resolve to a real
+    // date (see PENGINGAT). Computed from the date string alone, at UTC noon,
+    // so no server timezone can shift it to the neighbouring day.
+    const weekday = weekdayNameId(context.today);
+    if (weekday) lines.push(`Hari ini: ${weekday}.`);
+  }
+  // A reminder Merlin himself promised, now due — the app sends it only on the
+  // visit that follows the notification (see PROACTIVE OPENING rung 0).
+  if (context.reminder && typeof context.reminder.message === 'string' && context.reminder.message.trim()) {
+    lines.push(
+      `PENGINGAT JATUH TEMPO: kamu sendiri yang berjanji menyapa dia sekarang. Pesan yang barusan kamu kirim ke HP-nya: "${context.reminder.message.trim().slice(0, INGATKAN_MAX_MESSAGE_CHARS)}". Buka langsung dari benang itu — jangan ulang kalimatnya, lanjutkan.`
+    );
   }
   if (context.nowTime && /^\d{2}:\d{2}$/.test(context.nowTime)) {
     const hour = parseInt(context.nowTime.slice(0, 2), 10);
@@ -1471,6 +1503,35 @@ const PILIH_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${PILIH_BODY}[ \\t]*|[ \\t]*$
 // stripped).
 const PILIH_MAX_OPTIONS = 4;
 
+// Reminders (see PENGINGAT in the persona): [[INGATKAN: YYYY-MM-DD HH:MM | pesan]]
+// becomes a local notification the app schedules on the phone. Same
+// permissive-match, strip-always contract as PILIH — a malformed marker must
+// vanish, never print — and the body can't contain ']' for the same reason.
+const INGATKAN_BODY = String.raw`\[\[INGATKAN:\s*([^\]]+?)\s*\]\]`;
+const INGATKAN_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${INGATKAN_BODY}[ \\t]*|[ \\t]*${INGATKAN_BODY}`, 'gi');
+// The notification body is read on a lock screen, so a runaway message is cut
+// rather than dropped — the promise still gets kept.
+const INGATKAN_MAX_MESSAGE_CHARS = 200;
+
+// Validates the body into { at: 'YYYY-MM-DDTHH:MM', message } or null. The
+// date is checked for shape and real calendar validity only — "is it in the
+// future" is the app's call, against the device clock that the time was
+// resolved for in the first place.
+function parseReminderBody(body) {
+  const bar = body.indexOf('|');
+  if (bar < 0) return null;
+  const when = body.slice(0, bar).trim();
+  const message = body.slice(bar + 1).trim().slice(0, INGATKAN_MAX_MESSAGE_CHARS);
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})[:.](\d{2})$/.exec(when);
+  if (!match || !message) return null;
+  const [, y, mo, d, h, mi] = match.map(Number);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  const probe = new Date(Date.UTC(y, mo - 1, d));
+  if (probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return { at: `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}`, message };
+}
+
 // The app's own "speak first" trigger (see PROACTIVE OPENING). The persona
 // forbids echoing it, but it arrives as literal text in the transcript, so a
 // model that quotes it back would print it in the bubble. Cheap to guarantee
@@ -1551,7 +1612,14 @@ function extractMarkers(text) {
     return '';
   });
 
-  return { reply: reply.trimEnd(), ramalanGiven, garisTanganGiven, artiMimpiGiven, apprenticeActive, action, cardRef, choices };
+  // One reminder per reply, first valid one wins, every marker stripped.
+  let reminder = null;
+  reply = reply.replace(INGATKAN_MARKER_PATTERN, (_, ownLineBody, inlineBody) => {
+    if (!reminder) reminder = parseReminderBody(ownLineBody || inlineBody || '');
+    return '';
+  });
+
+  return { reply: reply.trimEnd(), ramalanGiven, garisTanganGiven, artiMimpiGiven, apprenticeActive, action, cardRef, choices, reminder };
 }
 
 // Confirms the request really comes from a logged-in Modwiz Mastery user by
@@ -1927,7 +1995,7 @@ module.exports = async function handler(req, res) {
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
-    const { reply, ramalanGiven, garisTanganGiven, artiMimpiGiven, apprenticeActive, action, cardRef, choices } =
+    const { reply, ramalanGiven, garisTanganGiven, artiMimpiGiven, apprenticeActive, action, cardRef, choices, reminder } =
       extractMarkers(replyText);
 
     // Which courses this user owns decides whether a course card opens at all,
@@ -1999,6 +2067,7 @@ module.exports = async function handler(req, res) {
       action,
       card,
       choices,
+      reminder,
       energyCurrent: energyAfter ? energyAfter.energyCurrent : undefined,
       energyMax: energyAfter ? energyAfter.energyMax : undefined,
       extraEnergy: energyAfter ? energyAfter.extraEnergy : undefined,
@@ -2032,3 +2101,7 @@ module.exports = async function handler(req, res) {
     res.status(502).json({ error: 'Merlin is unreachable right now. Please try again in a moment.' });
   }
 };
+
+// Exposed for tests only (same pattern as lib/merlin-nudge.js's composeNudge)
+// — Vercel calls the handler above, never this.
+module.exports.extractMarkers = extractMarkers;
