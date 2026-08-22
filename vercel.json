@@ -6,5 +6,15 @@
     "api/certificate-image.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/merlin-chat",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/merlin-chat",
+      "schedule": "0 13 * * *"
+    }
+  ]
 }

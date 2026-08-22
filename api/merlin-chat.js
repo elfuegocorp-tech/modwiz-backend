@@ -2,6 +2,7 @@ const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeeklyReset, WEEKLY_ENERGY_MAX } = require('../lib/energy');
 const { supabase } = require('../lib/supabase');
 const { sendExpoPush } = require('../lib/expo-push');
+const { upsertPushToken, handlePushTokenSync, runDailyNudge } = require('../lib/merlin-nudge');
 const { listSkillEntitlements } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
@@ -1537,6 +1538,24 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Vercel Cron's twice-daily "Merlin menyapa duluan" pass — before WP auth,
+  // because the cron carries CRON_SECRET, not a user's credentials. Vercel
+  // sends the secret as `Authorization: Bearer <CRON_SECRET>` on its own once
+  // the env var exists; both vercel.json entries point here and the schedule
+  // header says which slot this is. See lib/merlin-nudge.js.
+  if (req.method === 'GET' && process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
+    try {
+      const slot = req.headers['x-vercel-cron-schedule'] === '0 13 * * *' ? 'malam' : 'pagi';
+      const nudgeStats = await runDailyNudge(slot);
+      console.log('Merlin daily nudge:', JSON.stringify(nudgeStats));
+      res.status(200).json(nudgeStats);
+    } catch (err) {
+      console.error('Merlin daily nudge failed:', err);
+      res.status(500).json({ error: 'Nudge run failed' });
+    }
+    return;
+  }
+
   const wpUserId = await verifyWpUser(authHeader).catch(() => null);
   if (!wpUserId) {
     res.status(401).json({ error: 'Could not verify your Modwiz Mastery login' });
@@ -1548,10 +1567,27 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // The push-token mirror (login registration and the "Notifikasi Merlin"
+  // toggle both POST this instead of a chat turn) — see lib/merlin-nudge.js
+  // for why it lives inside this function.
+  if (req.body && req.body.pushTokenSync) {
+    await handlePushTokenSync(req, res, wpUserId);
+    return;
+  }
+
   const { messages, context, ramalan, garisTangan, skills: sentSkills, turnId, pushToken } = req.body || {};
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
+  }
+
+  // A token riding a chat turn means the toggle is ON on that device (the app
+  // only attaches it then) — keep the mirror fresh without a dedicated call.
+  // Best-effort: the chat must never fail over bookkeeping.
+  if (pushToken) {
+    await upsertPushToken(wpUserId, pushToken, null, true).catch((err) => {
+      console.error('Push token mirror (chat ride-along) failed:', err);
+    });
   }
 
   // Checked before the (costly) Bedrock call, not after — an empty tank
