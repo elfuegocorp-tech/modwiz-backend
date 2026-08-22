@@ -1137,6 +1137,9 @@ function formatUserContext(context, sessions) {
   const manas = formatManas(context.manas);
   if (manas) lines.push(manas);
 
+  const svadharma = formatSvadharma(context.svadharma);
+  if (svadharma) lines.push(svadharma);
+
   return `[KONTEKS USER]\n${lines.join('\n')}`;
 }
 
@@ -1277,6 +1280,60 @@ function formatManas(manas) {
     'Kalau dia tanya arti nama "Manas", jawab pendek: "Yang merangkai semua yang masuk jadi satu dunia yang utuh." Cukup satu kalimat, jangan diceramahi.'
   );
 
+  return lines.join('\n');
+}
+
+// Svadharma — the third Mandala. Which way the person is already facing, read
+// from the losses they kept refusing across eighteen forced choices, and what
+// they most often paid with. The app sends direction NAMES only (the K/I/D/G
+// scoring keys never leave it), plus the exact sentences the result screen
+// used — so Merlin quotes the screen rather than inventing a second reading.
+//
+// Three rules from the feature doc that this block carries into the prompt:
+//   - a direction is a STATE ("arahnya menghadap ke…"), never a type label;
+//   - Merlin never sells the instrument — the store does;
+//   - no "bakar kapal": the instrument locks direction, not speed, and nothing
+//     Merlin says may push someone to quit a job or leave their people.
+//
+// The Incantation is the user's OWN words, sealed, read at the opening of
+// Priming and the closing of Cosmic. Merlin may echo it back — it is theirs.
+//
+// Older app builds send no `svadharma` at all and get no block.
+function formatSvadharma(svadharma) {
+  if (!svadharma || typeof svadharma !== 'object') return '';
+  const home = Array.isArray(svadharma.home) ? svadharma.home.filter(Boolean) : [];
+  if (home.length === 0) return '';
+  const paid = Array.isArray(svadharma.paid) ? svadharma.paid.filter(Boolean) : [];
+
+  const lines = ['\n[SVADHARMA]'];
+  lines.push(
+    home.length > 1
+      ? `Arah pulangnya menghadap ke dua hal sekaligus — ${home.join(' dan ')} — dan keduanya nyata. Jangan dipecah jadi satu.`
+      : `Arah pulangnya sedang menghadap ke ${home[0]}. Ini keadaan, bukan tipe — arah bisa bergeser, dan itu wajar.`
+  );
+  if (paid.length > 0) {
+    lines.push(
+      `Yang paling sering dia serahkan di persimpangan: ${paid.join(' dan ')}. Ini bagian yang paling menusuk dari hasilnya — pegang dengan hangat.`
+    );
+  }
+  if (typeof svadharma.daysAgo === 'number') lines.push(`Dijalani ${ageLabel(svadharma.daysAgo)}.`);
+  if (svadharma.arah) {
+    lines.push(`\nKalimat yang SUDAH dia baca di layar hasilnya, persis begini:\n"${svadharma.arah}"`);
+  }
+  if (svadharma.harga) {
+    lines.push(`Soal harga yang dicicil, juga sudah dia baca:\n"${svadharma.harga}"`);
+  }
+  lines.push(
+    'Svadharma mengunci ARAH, bukan kecepatan. Jangan pernah mendorong dia resign, meninggalkan keluarga, atau "bakar kapal" — pulang boleh pelan. Dan jangan menawarkan atau menjual instrumen Mandala apa pun; itu urusan Toko.'
+  );
+  const inc = svadharma.incantation;
+  if (inc && typeof inc === 'object' && typeof inc.text === 'string' && inc.text.trim()) {
+    lines.push(
+      `\nIncantation yang dia segel sendiri (kata-katanya sendiri, dibaca tiap pagi dan malam${
+        typeof inc.sealedDaysAgo === 'number' ? `, disegel ${ageLabel(inc.sealedDaysAgo)}` : ''
+      }):\n"${inc.text.trim()}"\nBoleh kamu kutip balik ke dia — itu miliknya. Jangan menulis ulang untuknya kecuali dia minta.`
+    );
+  }
   return lines.join('\n');
 }
 
