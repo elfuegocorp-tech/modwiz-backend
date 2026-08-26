@@ -111,7 +111,50 @@ module.exports = async function handler(req, res) {
       // since I have no rank to close a gap on.
       const above = mine && !mine.hidden && mine.rank > 1 ? visible[mine.rank - 2] : null;
 
+      // Last week's podium + the caller's own finishing position, for the
+      // winner moment the app plays on the first leaderboard open after the
+      // Monday count. Same ranking function over the previous window, so
+      // the podium shown IS the podium the reward grant above paid out on —
+      // hidden/sat-out users are already out of both. `rewardPending`
+      // mirrors the main payload's pendingLeaderboardReward check so the
+      // app can chain the Souls popup (and ack it) without a second /state
+      // round-trip.
+      const { weekStartUtc: prevWeekStartUtc, weekStartDateStr: prevWeekKey } = mostRecentMondayWibUtc(
+        new Date(weekStartUtc.getTime() - 1)
+      );
+      const prevVisible = (await computeWeeklyXpRanking(prevWeekStartUtc, weekStartUtc)).filter((r) => !r.hidden);
+      const prevMine = prevVisible.find((r) => r.wpUserId === wpUser.id) ?? null;
+      const prevThird = prevVisible[2] ?? null;
+      const { data: unseenReward, error: unseenRewardError } = await supabase
+        .from('souls_ledger')
+        .select('amount')
+        .eq('wp_user_id', wpUser.id)
+        .like('reason', 'leaderboard:%')
+        .is('seen_at', null)
+        .limit(1)
+        .maybeSingle();
+      if (unseenRewardError) throw unseenRewardError;
+
       res.status(200).json({
+        lastWeek: {
+          weekStart: prevWeekKey,
+          top3: prevVisible.slice(0, 3).map((r) => ({
+            rank: r.rank,
+            wpUserId: r.wpUserId,
+            firstName: r.firstName,
+            avatarUrl: r.avatarUrl,
+            xpTotal: r.xpTotal,
+          })),
+          me: {
+            rank: prevMine ? prevMine.rank : null,
+            xpTotal: prevMine ? prevMine.xpTotal : 0,
+            // Only meaningful for someone OUTSIDE the top 3 — the "X XP lagi
+            // dari 3 besar" line on their position card.
+            gapToTop3Xp: prevMine && prevMine.rank > 3 && prevThird ? prevThird.xpTotal - prevMine.xpTotal : null,
+            rewardPending: !!unseenReward,
+            rewardAmount: unseenReward ? unseenReward.amount : null,
+          },
+        },
         weekStart: weekStartDateStr,
         resetInMs: weekEndUtc.getTime() - Date.now(),
         entries: visible.slice(0, 100).map((r) => ({
