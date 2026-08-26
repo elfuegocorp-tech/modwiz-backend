@@ -792,6 +792,21 @@ function formatUserContext(context, sessions) {
     lines.push(
       'STATUS: user BARU — belum pernah menetapkan goal, belum pernah check-in, belum punya course apa pun, dan ini kunjungan pertamanya ke Merlin. Perlakukan sebagai orang yang baru pertama kali datang, bukan orang yang sudah lama diam.'
     );
+  } else if (context.firstMeeting === true) {
+    // isNewUser is effectively unreachable for accounts that came through
+    // Merlin's Onboarding — the conversation itself writes a goal and a
+    // belief seed before the chat ever opens, which is how a ten-minute-old
+    // account once got greeted like a regular. firstMeeting is the app's
+    // "no Merlin visit had ever been recorded" flag, true for every turn of
+    // the first visit only; daysSincePromise tells the fresh-from-the-
+    // promise case apart from an old account meeting Merlin late.
+    const justPromised =
+      typeof context.daysSincePromise === 'number' && context.daysSincePromise <= 3;
+    lines.push(
+      justPromised
+        ? 'STATUS: PERTEMUAN PERTAMA — ini percakapan pertamanya denganmu. Kalian baru saja selesai berkenalan: dia menuliskan keinginannya (goal di bawah) dan mengikat janji untuk lebih serius sama dirinya sendiri, dan janji itu masih hangat. Kamu penyihir yang menerima janji itu — sambut dia dari situ. Jangan menyapa seperti ke orang asing, dan jangan pula seperti ke kenalan lama.'
+        : 'STATUS: PERTEMUAN PERTAMA — ini percakapan pertamanya denganmu, walaupun dia sudah lebih dulu memakai bagian lain aplikasi. Berkenalan dulu; jangan bersikap seolah kalian sudah lama mengobrol.'
+    );
   } else if (typeof context.daysSinceLastVisit === 'number') {
     lines.push(`Kunjungan terakhirnya ke percakapan ini dengan kamu: ${ageLabel(context.daysSinceLastVisit)}.`);
   }
