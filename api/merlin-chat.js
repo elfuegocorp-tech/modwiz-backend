@@ -2037,7 +2037,28 @@ module.exports = async function handler(req, res) {
   // when Merlin stays silent, was the block empty (data problem) or full and
   // ignored (prompt problem)?
   const openings = buildOpeningsBlock(context, sessions, unlocks, lessonIndex);
-  if (openings) console.log('Merlin openings:', wpUserId, JSON.stringify(openings));
+  // Unconditional, with every raw input beside the result — the first live
+  // test produced a silent Merlin and an absent log, which couldn't tell
+  // "empty block" (data) from "full block, ignored" (prompt) from "wrong log
+  // view". One line now answers all of it: checkinMalam true means a missing
+  // COSMIC rung is CORRECT, offersDariApp missing means the app bundle is
+  // stale, lessonIndexSize 0 means the LLMS key path isn't working.
+  console.log(
+    'Merlin openings:',
+    wpUserId,
+    JSON.stringify({
+      block: openings || '(kosong)',
+      jam: context?.nowTime ?? null,
+      checkinPagi: Boolean(context?.todayRituals?.morning),
+      checkinMalam: Boolean(context?.todayRituals?.evening),
+      sesi: sessions,
+      offersDariApp: context?.offers ?? '(tidak dikirim)',
+      unlocks: unlocks ? Object.keys(unlocks) : null,
+      lessonIndexSize: lessonIndex?.byId?.size ?? 0,
+      focusStallDays: context?.focusCourse?.lastActivityDaysAgo ?? null,
+      agni: context?.agniChakti === null ? 'belum pernah' : (context?.agniChakti?.daysAgo ?? 'tidak dikirim'),
+    })
+  );
 
   const briefing = [
     formatUserContext(context, sessions),
