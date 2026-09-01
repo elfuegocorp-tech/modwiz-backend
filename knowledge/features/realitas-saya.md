@@ -5,7 +5,7 @@ name: Realitas Saya
 updated: 2026-08-14
 confirmed: true
 tags: grafik, tren, mood, pola, naik, turun, data
-marker: [[CARD:RITUAL:REALITAS_SAYA]]
+marker: [[ACTION:REALITAS_SAYA]]
 ---
 INTI: grafik tren realita user dari waktu ke waktu, dibangun dari check-in malam (COSMIC), plus grid TINDAKAN NYATA yang menunjukkan gerakan nyatanya.
 

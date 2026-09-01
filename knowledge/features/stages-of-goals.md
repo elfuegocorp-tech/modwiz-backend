@@ -5,7 +5,7 @@ name: Stages of Goals
 updated: 2026-08-14
 confirmed: true
 tags: progress, stage, milestone, pencapaian, tercapai
-marker: [[CARD:RITUAL:GOAL_WIZARD]]
+marker: [[ACTION:GOAL_WIZARD]]
 ---
 INTI: tiga tahap yang user nyatakan sendiri terhadap goal tertulisnya — Stage 1 Realita Hari Ini, Stage 2 milestone pertama, Stage 3 Impian Tercapai. Tidak ada skor dan tidak ada yang menghitung; stage naik hanya kalau user mengisi form konfirmasi dan menuliskan apa yang terjadi.
 

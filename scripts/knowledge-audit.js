@@ -65,6 +65,18 @@ const ROUTE_TO_CARD = {
   'courses': 'courses-sertifikat',
   'profile': 'jurnal-profil',
   'leaderboard': 'leaderboard',
+  'svadharma': 'svadharma',
+  'books': 'rak-buku',
+  'book': 'rak-buku',
+  'certificates': 'courses-sertifikat',
+  'journal/write': 'jurnal-profil',
+  'privilege': 'modwiz-privilege',
+  'session/ritual-malam/select': 'ritual-malam',
+  // First-run flows — Merlin meets the user after these, and pointing someone
+  // back into onboarding is never a recommendation he should make.
+  'langkah-pertama': 'reality-map',
+  'merlin-onboarding': 'souls-energy',
+  'welcome': 'reality-map',
 };
 
 const problems = [];

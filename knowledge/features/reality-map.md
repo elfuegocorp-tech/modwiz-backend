@@ -5,7 +5,7 @@ name: Reality Map (penetapan goal / Well-Formed Outcome)
 updated: 2026-08-14
 confirmed: true
 tags: goal, impian, arah, deadline, wfo, mulai, bingung
-marker: [[CARD:RITUAL:GOAL_WIZARD]]
+marker: [[ACTION:GOAL_WIZARD]]
 ---
 INTI: wizard yang menuntun user menuliskan goal-nya secara utuh — realita hari ini, yang dia butuhkan, deadline, bayangan hari-harinya setelah tercapai, apakah dia bisa sendiri atau butuh orang tertentu, dan apa lagi di hidupnya yang ikut berubah.
 

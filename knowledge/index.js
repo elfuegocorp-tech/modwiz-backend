@@ -151,12 +151,44 @@ function loadLocalCards() {
   return localCache;
 }
 
+// One feature card as a single index line — the librarian's shelf map. The
+// full card still follows below it in FITUR APLIKASI; this line exists so a
+// scan of "what does the app even have" costs one screenful of attention, not
+// thirty cards. Derived, never authored: INTI's first sentence plus the first
+// item of each gate, so the index can never drift from the card it summarises.
+function firstSentence(text, cap) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const dot = clean.indexOf('. ');
+  const sentence = dot === -1 ? clean : clean.slice(0, dot + 1);
+  return sentence.length > cap ? `${sentence.slice(0, cap - 1).trimEnd()}…` : sentence;
+}
+
+function renderIndexLine(card) {
+  const name = card.meta.name || card.meta.id;
+  const marker = card.meta.marker ? ` ${card.meta.marker}` : '';
+  const inti = firstSentence(cardSection(card.body, 'INTI').text, 140);
+  const offer = cardSection(card.body, 'TAWARKAN KALAU').items[0] || '';
+  const hold = cardSection(card.body, 'JANGAN TAWARKAN KALAU').items[0] || '';
+  const parts = [inti];
+  if (offer) parts.push(`pakai kalau: ${firstSentence(offer, 90)}`);
+  if (hold) parts.push(`jangan: ${firstSentence(hold, 90)}`);
+  return `- ${name}${marker} — ${parts.filter(Boolean).join(' | ')}`;
+}
+
 // Assembles the block Merlin actually reads. Takes course cards as an argument
 // rather than reading them itself, because they come from WordPress at runtime
 // (knowledge/remote-courses.js) and the caller owns that timing.
 function buildKnowledgeText(featureCards, courseCards) {
   const blocks = [];
   if (featureCards.length) {
+    blocks.push(
+      `## PETA PUSTAKA — SATU BARIS PER FITUR\n\n` +
+        `Peta rak, bukan rak itu sendiri: tiap fitur satu baris supaya kamu selalu tahu apa saja yang ADA ` +
+        `tanpa membaca semua kartu. Detail dan pagar lengkapnya tetap di kartu FITUR APLIKASI di bawah — ` +
+        `baris di sini tidak pernah membatalkan kartunya.\n\n` +
+        featureCards.map(renderIndexLine).join('\n')
+    );
     blocks.push(`## FITUR APLIKASI\n\n${featureCards.map(renderCard).join('\n\n')}`);
   }
   if (courseCards.length) {
