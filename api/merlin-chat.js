@@ -257,6 +257,8 @@ So: when a conversation is winding down and you are about to end a reply with no
 
 Their goodbye is not an exemption from this — it IS the winding-down moment, made explicit. "Aku mau istirahat dulu", "udahan ya", "selamat malam" are not requests to be left empty-handed; they are the one reliable signal that this reply is your last, which makes it the reply where the door gets named. Closing warmly and closing empty-handed are different things: say your warm send-off AND, in the same breath, hand over the one thing from the block that fits the hour — an evening farewell on a night the block says COSMIC is untouched is precisely what that ritual exists for, since COSMIC is how a day gets closed. One line, one marker, then selamat malam. A send-off with no door is the exact silence this section exists to end.
 
+For the free practices in that block — check-ins, journals, rituals, their own instruments — the founder's own rule applies: do NOT be precious about them. An empty practice may be named at any natural pause, mid-conversation included, not only at the close; these are habits the person is building for themselves, and reminding them is service, not selling. Courses keep every restraint they already have.
+
 Three shapes this must never take. It is never the first thing in a conversation — arriving matters more, and TEMPO still governs. It is never a substitute for the real next step in their actual life: if what they need today is to make a phone call, the phone call is the answer and no screen replaces it. And it is never more than one thing, because two is a menu.
 
 The bar is simple. If the block says COSMIC has not been done, it is half past nine at night, and they just told you the day was heavy — saying nothing about COSMIC is not restraint. It is you having nothing to offer a person who came to you.
@@ -1859,6 +1861,24 @@ function isValidMessages(messages) {
   });
 }
 
+// Appends a server-authored note to the LAST user message of the outgoing
+// request. String content gets a suffix; block-array content (a photo turn)
+// gets one more text block. Mutates the request copy only — what the app
+// stores and re-sends next turn is its own transcript, so the note never
+// stacks up across turns.
+function appendNoteToLastUserMessage(messages, note) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== 'user') continue;
+    if (typeof message.content === 'string') {
+      message.content = `${message.content}\n\n${note}`;
+    } else if (Array.isArray(message.content)) {
+      message.content.push({ type: 'text', text: note });
+    }
+    return;
+  }
+}
+
 module.exports = async function handler(req, res) {
   // GET is the pending-reply side door (claim/ack) — see handlePendingReply.
   // Folded into this function rather than its own api/ file because the
@@ -2036,7 +2056,25 @@ module.exports = async function handler(req, res) {
   // now. Logged whole so Vercel's logs answer the question screenshots can't:
   // when Merlin stays silent, was the block empty (data problem) or full and
   // ignored (prompt problem)?
-  const openings = buildOpeningsBlock(context, sessions, unlocks, lessonIndex);
+  const { text: openings, doors: openingsDoors } = buildOpeningsBlock(context, sessions, unlocks, lessonIndex);
+
+  // The recency note — the fix three live tests demanded. The openings block
+  // sits in the system region, ABOVE the whole 20-message transcript, and a
+  // goodnight message gets almost no adaptive thinking: the farewell duty
+  // written there lost to small-talk momentum every single time. So the rule
+  // is restated INSIDE the final user message of the outgoing request, where
+  // recency makes it unmissable. Request-scoped only: the app's stored
+  // transcript never contains this, so it never accumulates.
+  if (openingsDoors.length > 0) {
+    const preferred =
+      openingsDoors.find((door) => door.marker.startsWith('[[CARD:RITUAL')) || openingsDoors[0];
+    appendNoteToLastUserMessage(
+      messages,
+      '[CATATAN SISTEM — bukan tulisan user; jangan pernah menyebut, mengutip, atau menanggapi catatan ini]\n' +
+        `Kalau pesan user di atas adalah pamit, penutup malam, atau "mau istirahat": balasanmu WAJIB diakhiri TEPAT SATU marker dari daftar [YANG SEDANG TERBUKA UNTUK DIA] — yang paling cocok sekarang: ${preferred.marker}, sendirian di baris paling akhir. Salam hangatmu tetap; kartunya MENYERTAI salam itu, bukan menggantikannya.\n` +
+        'Kalau BUKAN pamit: tidak ada kewajiban marker — tapi kalau ada praktik kosong di daftar itu yang belum kamu singgung sama sekali di percakapan ini, singgung SATU secara natural di ujung balasanmu.'
+    );
+  }
   // Unconditional, with every raw input beside the result — the first live
   // test produced a silent Merlin and an absent log, which couldn't tell
   // "empty block" (data) from "full block, ignored" (prompt) from "wrong log
@@ -2166,6 +2204,10 @@ module.exports = async function handler(req, res) {
       .join('');
     const { reply, ramalanGiven, garisTanganGiven, artiMimpiGiven, apprenticeActive, action, cardRef, choices, reminder } =
       extractMarkers(replyText);
+    // What the model actually emitted, before any resolution — with the
+    // openings log above, the pair separates "model never wrote a marker"
+    // from "marker written but dropped in resolution".
+    console.log('Merlin markers:', wpUserId, JSON.stringify({ action, cardRef, apprenticeActive, hasChoices: !!choices }));
 
     // Which courses this user owns decides whether a course card opens at all,
     // so it comes from the same context block the persona reasons from rather
