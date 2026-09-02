@@ -47,3 +47,9 @@ verify_jwt = false
 # warns about.
 [functions.catalog]
 verify_jwt = false
+
+# billing: Google Play receipts. /verify takes the caller's WordPress header
+# like the others. /rtdn is Google's own Pub/Sub push and carries no user at
+# all — it is keyed by MODWIZ_RTDN_KEY in the URL instead (see billing/index.ts).
+[functions.billing]
+verify_jwt = false
