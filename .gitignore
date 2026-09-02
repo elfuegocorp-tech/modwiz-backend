@@ -13,3 +13,6 @@ supabase/.temp/
 sql/supabase-migration/_bundle.generated.sql
 
 .DS_Store
+
+# Service-account keys and shared secrets for Play Billing — never committed. See supabase/functions/billing/index.ts.
+secrets/
