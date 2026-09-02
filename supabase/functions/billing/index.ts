@@ -553,6 +553,21 @@ async function handleRtdn(req: Request): Promise<Response> {
   }
   if (event.packageName && event.packageName !== PACKAGE_NAME) return json({ ok: true, ignored: 'other package' });
 
+  // One line per message Google delivers, always. Refunds are the event you
+  // most want a record of and the one nobody watches for weeks; a silent
+  // handler also makes "did the Pub/Sub wiring actually work?" unanswerable
+  // from the logs, which cost an evening the day this was set up.
+  const kind = event.testNotification
+    ? 'test'
+    : event.voidedPurchaseNotification
+      ? `voided token=${event.voidedPurchaseNotification.purchaseToken.slice(0, 12)}…`
+      : event.oneTimeProductNotification
+        ? `one-time type=${event.oneTimeProductNotification.notificationType} sku=${event.oneTimeProductNotification.sku ?? '?'}`
+        : event.subscriptionNotification
+          ? `subscription type=${event.subscriptionNotification.notificationType} id=${event.subscriptionNotification.subscriptionId ?? '?'}`
+          : 'unhandled shape';
+  console.log(`[billing/rtdn] received: ${kind}`);
+
   // Pub/Sub retries anything that is not a 2xx, so every branch below
   // answers ok even when there was nothing to do — the log carries the why.
   if (event.testNotification) return json({ ok: true, test: true });
