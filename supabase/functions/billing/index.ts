@@ -162,6 +162,11 @@ type ProductPurchase = {
   obfuscatedExternalAccountId?: string;
   purchaseType?: number; // 0 test, 1 promo, 2 rewarded — absent for real sales
   regionCode?: string;
+  // Absent means 1. Only ever above 1 if a product's purchase option enables
+  // "allow multiple per transaction" in Play Console — which ours deliberately
+  // do not. Read anyway: the alternative is charging for three packs of Souls
+  // and crediting one, and the setting is a checkbox someone could tick later.
+  quantity?: number;
 };
 
 type SubscriptionPurchase = {
@@ -454,8 +459,10 @@ async function handleVerify(req: Request, user: WpUser): Promise<Response> {
       const result = await grantCourse(row);
       details = { courseId: result.courseId, kit: result.kit };
     } else if (kind === 'souls') {
-      const souls = soulsIn(productId);
-      if (!souls) throw new Error(`Product ${productId} carries no Souls amount`);
+      const perPack = soulsIn(productId);
+      if (!perPack) throw new Error(`Product ${productId} carries no Souls amount`);
+      const quantity = Math.max(1, Math.floor(purchase?.quantity ?? 1));
+      const souls = perPack * quantity;
       const balance = await adjustSouls(user.id, souls, `purchase:${productId}:${orderId ?? purchaseToken.slice(0, 12)}`);
       details = { souls, soulsBalance: balance };
     } else if (subscription) {
