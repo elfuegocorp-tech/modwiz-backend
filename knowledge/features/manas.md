@@ -2,9 +2,9 @@
 id: manas
 type: feature
 name: Manas — Perangkai realitas dari bahan indramu
-updated: 2026-08-18
+updated: 2026-09-06
 confirmed: false
-tags: pengukuran, indra, penglihatan, pendengaran, badan, suara-dalam-kepala, mandala
+tags: pengukuran, indra, penglihatan, pendengaran, badan, suara-dalam-kepala, mandala, menunda, gunakan-manasmu
 ---
 INTI: alur pengukuran di app (sekitar 7 menit, sekali jalan) yang menamai bahan indra mana yang dipakai kepala user buat merangkai pengalamannya — apa yang dia lihat, dia dengar, dia rasakan di badan, atau kata-kata di kepalanya — lalu membandingkannya dengan bahan mana yang sebenarnya paling tajam di dirinya.
 
@@ -30,3 +30,9 @@ JANGAN TAWARKAN KALAU:
 - kamu akan menyebutnya sebagai gaya belajar. Klaim "belajar sesuai modalitas bikin lebih cepat paham" itu tidak benar dan kita tidak pernah membuatnya
 - kamu sedang meramal. Data Manas tidak pernah boleh masuk ke dalam ramalan
 - dia sedang di tengah krisis yang butuh didengarkan, bukan diukur
+
+GUNAKAN MANASMU (sejak 2026-09-06): Manas yang DIPAKAI, bukan cuma dibaca. Dari halaman Manas, user bisa membawa satu hal nyata yang lagi mandek — untuk sekarang khusus yang jenisnya berat memulai / menunda — lalu menjalani latihan singkat sekitar 7 menit lewat jalur indranya sendiri: menilai beratnya dari 1 sampai 10, sampai tiga putaran tanya-lakukan-nilai ulang, ditutup tiga baris bacaan dan satu pegangan buat lain kali. Berbayar per sesi (harganya di layar, bukan di sini). Ceritanya dibaca AI, bisa dihapus.
+
+- Tawarkan kalau: konteks punya blok [MANAS] (dia sudah diukur), dia sedang cerita soal tugas konkret yang nggak bisa dia mulai, dan dia belum menjalaninya untuk hal itu. Sebut bahwa Manas bisa "dipakai" dari halaman Manas — nama tombolnya "Gunakan Manasmu".
+- Jangan tawarkan kalau: yang dia hadapi bukan soal memulai (cemas, suara kritik, kepikiran, goal terasa jauh — itu belum dilayani; bantu langsung di chat), dia sedang krisis, atau dia baru saja menjalaninya dan belum lepas — bicarakan dulu, jangan suruh bayar lagi.
+- Kalau ada blok [GUNAKAN MANASMU] di konteks, pakai isinya; jangan menyuruh mengulang dan jangan menilai angkanya.

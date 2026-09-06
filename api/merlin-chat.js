@@ -1202,10 +1202,41 @@ function formatUserContext(context, sessions) {
   const manas = formatManas(context.manas);
   if (manas) lines.push(manas);
 
+  const manasSession = formatManasSession(context.manasSession);
+  if (manasSession) lines.push(manasSession);
+
   const svadharma = formatSvadharma(context.svadharma);
   if (svadharma) lines.push(svadharma);
 
   return `[KONTEKS USER]\n${lines.join('\n')}`;
+}
+
+// Manas Session ("Gunakan Manasmu") — Manas being USED. The app sends only the
+// latest session: what was stuck, the two ratings, whether it released, and
+// the one-line instruction the closing reading handed the user. Older builds
+// send nothing and get no block. The channel arrives as a NAME, never a
+// letter, for the same reason as formatManas.
+function formatManasSession(session) {
+  if (!session || typeof session !== 'object' || !session.macet) return '';
+
+  const lines = ['\n[GUNAKAN MANASMU — sesi terakhir]'];
+  lines.push(`Yang dia bawa: ${session.macet}${session.saat ? ` — muncul ${session.saat}` : ''}.`);
+  if (typeof session.awal === 'number' && typeof session.akhir === 'number') {
+    lines.push(
+      `Beratnya ${session.awal} → ${session.akhir} dari 10 setelah ${session.rounds || 1} putaran lewat ${session.channel || 'jalurnya'}. ${
+        session.cukup ? 'Lepas.' : 'BELUM lepas — dia diserahkan ke kamu di akhir sesi.'
+      }`
+    );
+  }
+  if (session.pegangan) {
+    lines.push(`Pegangan yang layar kasih buat lain kali, persis begini:\n"${session.pegangan}"`);
+  }
+  if (typeof session.daysAgo === 'number') lines.push(`Dijalani ${ageLabel(session.daysAgo)}.`);
+
+  lines.push(
+    'CARA PAKAI: kalau dia membuka chat dengan "bantu aku pahami sesi Manas-ku barusan", itu izin — jelaskan apa yang bergeser dan kenapa, disambungkan ke hal yang dia bawa, lalu SATU langkah nyata. Kalau belum lepas: jangan menghibur, jangan menyalahkan cara dia menjawab; hal yang sama bisa dibawa lagi lewat sisi lain, atau dibicarakan di sini dulu. Ini latihan, bukan terapi — jangan pernah menyebutnya sembuh. Tanpa nama teknik, tanpa huruf jalur, tanpa metafora cermin.'
+  );
+  return lines.join('\n');
 }
 
 // Agni Chakti — Merlin's second skill. The reading itself is an app screen,

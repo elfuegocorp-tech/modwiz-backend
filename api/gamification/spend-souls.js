@@ -13,6 +13,11 @@
 //                         reason the app's STORE_UNLOCKS_LIVE could finally be
 //                         switched on. The price is read from
 //                         lib/store-products.js and NEVER from the request.
+//   manas_session       — spends Souls on ONE run of Manas Session ("Gunakan
+//                         Manasmu"). Per-use, not an unlock: the receipt goes
+//                         to souls_spends keyed by the sessionId the app
+//                         minted, which is what makes a retry free instead of
+//                         a second charge. Price from lib/store-products.js.
 //   (mock_purchase was removed 2026-08-12 — it stood in for RevenueCat and
 //    priced off the old hardcoded catalog, which no longer exists now that
 //    1 Soul = Rp 990 is the only conversion. Buying is a request into the
@@ -20,7 +25,7 @@
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { addExtraEnergy, setExtraEnergyEnabled, ENERGY_PER_SOUL } = require('../../lib/energy');
-const { priceOf, grandfatherAllowed } = require('../../lib/store-products');
+const { priceOf, grandfatherAllowed, consumablePriceOf } = require('../../lib/store-products');
 
 async function debitSouls(wpUserId, amount, reason) {
   const { data: current, error: fetchError } = await supabase
@@ -151,6 +156,95 @@ async function handleUnlockProduct(req, res, wpUser) {
   });
 }
 
+// One paid run of Manas Session.
+//
+// Same claim-before-debit order as handleUnlockProduct, for the same reason,
+// against souls_spends instead of user_unlocks (see sql/souls_spends.sql for
+// why a per-use spend cannot share the unlock table). The ref is minted by the
+// APP before it asks — `manas_session:<sessionId>` — so the same session asked
+// for twice (double-tap, retried request, two devices) lands on the same row,
+// and the second ask is answered "already paid" with nothing debited.
+//
+// Nothing here starts the session. The app starts it only after this returns
+// ok, which is the guardrail "no session starts unpaid" made mechanical.
+const MANAS_SESSION_PRODUCT_ID = 'manas_session';
+const SESSION_ID_SHAPE = /^[A-Za-z0-9:_.\-]{8,80}$/;
+
+async function readBalance(wpUserId) {
+  const { data } = await supabase
+    .from('gamification_state')
+    .select('souls_balance')
+    .eq('wp_user_id', wpUserId)
+    .maybeSingle();
+  return data ? data.souls_balance : 0;
+}
+
+async function handleManasSession(req, res, wpUser) {
+  const sessionId = req.body && req.body.sessionId;
+  if (typeof sessionId !== 'string' || !SESSION_ID_SHAPE.test(sessionId)) {
+    res.status(400).json({ error: 'sessionId is required' });
+    return;
+  }
+  const price = consumablePriceOf(MANAS_SESSION_PRODUCT_ID);
+  if (price === null) {
+    res.status(500).json({ error: 'Session price is not configured' });
+    return;
+  }
+  const ref = `${MANAS_SESSION_PRODUCT_ID}:${sessionId}`;
+
+  const { error: claimError } = await supabase
+    .from('souls_spends')
+    .insert({ wp_user_id: wpUser.id, ref, product_id: MANAS_SESSION_PRODUCT_ID, souls_spent: price });
+
+  if (claimError) {
+    // 23505 = unique_violation: this exact session was already paid for. The
+    // app is retrying, not buying twice — answer as a success and let it start.
+    if (claimError.code === '23505') {
+      res.status(200).json({
+        ok: true,
+        sessionId,
+        alreadyPaid: true,
+        soulsSpent: 0,
+        soulsBalance: await readBalance(wpUser.id),
+      });
+      return;
+    }
+    throw claimError;
+  }
+
+  let debit;
+  try {
+    debit = await debitSouls(wpUser.id, price, ref);
+  } catch (err) {
+    await releaseSpend(wpUser.id, ref);
+    throw err;
+  }
+
+  if (!debit.ok) {
+    await releaseSpend(wpUser.id, ref);
+    res.status(400).json({ error: 'Not enough Souls', soulsBalance: debit.soulsBalance, price });
+    return;
+  }
+
+  res.status(200).json({
+    ok: true,
+    sessionId,
+    alreadyPaid: false,
+    soulsSpent: price,
+    soulsBalance: debit.soulsBalance,
+  });
+}
+
+async function releaseSpend(wpUserId, ref) {
+  const { error } = await supabase
+    .from('souls_spends')
+    .delete()
+    .eq('wp_user_id', wpUserId)
+    .eq('ref', ref);
+  // Logged, not thrown — same reasoning as releaseClaim below.
+  if (error) console.error('gamification/spend-souls session rollback failed:', error);
+}
+
 async function releaseClaim(wpUserId, productId) {
   const { error } = await supabase
     .from('user_unlocks')
@@ -176,13 +270,18 @@ module.exports = async function handler(req, res) {
   }
 
   const requested = req.body && req.body.action;
-  const action = ['buy_extra_energy', 'toggle_extra_energy', 'unlock_product'].includes(requested)
+  const action = ['buy_extra_energy', 'toggle_extra_energy', 'unlock_product', 'manas_session'].includes(requested)
     ? requested
     : 'test_spend';
 
   try {
     if (action === 'unlock_product') {
       await handleUnlockProduct(req, res, wpUser);
+      return;
+    }
+
+    if (action === 'manas_session') {
+      await handleManasSession(req, res, wpUser);
       return;
     }
 

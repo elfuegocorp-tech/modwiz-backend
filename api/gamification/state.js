@@ -20,7 +20,7 @@ const { supabase } = require('../../lib/supabase');
 const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/energy');
 const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards, hidAtSomePointDuring } = require('../../lib/leaderboard');
 const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
-const { listUnlocks } = require('../../lib/store-products');
+const { listUnlocks, CONSUMABLE_PRICES } = require('../../lib/store-products');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -238,6 +238,11 @@ module.exports = async function handler(req, res) {
       weeklyEnergyUsed: energy ? Math.round(energy.weeklyUsed) : null,
       weeklyEnergyMax: energy ? energy.weeklyMax : null,
       weeklyResetInMs: energy ? msUntilWeeklyReset(energy.weeklyWindowStartedAt) : null,
+      // Per-use prices, so the app never carries one. Today one entry —
+      // manas_session — read by the Manas Session screen for its "Mulai · N
+      // Souls" button. Unlock prices are NOT here: the Toko catalog shows
+      // those from the app and the server only checks them at debit time.
+      prices: CONSUMABLE_PRICES,
     });
   } catch (err) {
     console.error('gamification/state error:', err);

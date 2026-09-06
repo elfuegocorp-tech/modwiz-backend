@@ -17,6 +17,12 @@
 // record-action.js. The app selects the branch with body.instrument:
 // 'manas-bahasa'; absent means Agni Chakti, so every existing client keeps
 // working unchanged.
+//
+// SINCE 2026-09-06 IT ALSO SERVES MANAS SESSION ("Gunakan Manasmu") — two
+// more instrument values, same fold, same reason:
+//   'manas-resume'  — reads the user's story, sorts it, returns the resume
+//   'manas-bacaan'  — writes the three closing lines from the session's data
+// Spec: modwiz-app/docs/merlin-skills/manas-session.md.
 
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { verifyWpUser } = require('../lib/wp-auth');
@@ -244,6 +250,286 @@ async function handleManasBahasa(req, res) {
   }
 }
 
+// === MANAS SESSION — "Gunakan Manasmu" ======================================
+//
+// Manas told the user which sensory material their mind runs on, then stopped.
+// The session is Manas being USED: the user brings one real thing they are
+// stuck on, the app runs a short guided procedure in their own channel, and
+// the number they rate before and after says whether it moved. Two calls land
+// here — the resume that opens a session and the reading that closes one.
+// Everything between them (the questions, the instructions) is fixed copy the
+// app owns; the model never writes an instruction.
+//
+// The channel arrives as its Indonesian NAME, never a letter — same defence as
+// Lapis 3. Nothing this model is not handed can reach the user through it.
+//
+// COST NOTE: the two system prompts below are what a session costs in tokens,
+// and the session's Souls price was derived from them (see MANAS_SESSION_SOULS
+// in lib/store-products.js). Lengthen a prompt and the price it was priced at
+// is stale.
+
+const MANAS_RESUME_SYSTEM_PROMPT = `Kamu membaca cerita pendek user tentang sesuatu yang sedang dia hadapi, untuk fitur "Gunakan Manasmu" di app Modwiz. Kamu BUKAN chatbot di sini — tidak menyapa, tidak bertanya. Kamu menghasilkan JSON.
+
+Tugasmu tiga: (1) memilah JENIS yang dia hadapi, (2) menilai apakah ceritanya terlalu BERAT untuk sebuah latihan singkat, (3) meringkasnya jadi tiga frasa pendek yang akan dibaca ulang oleh user dan dipakai apa adanya di dalam instruksi latihan.
+
+=== BAHASA ===
+Tulis dalam Bahasa Indonesia, dan BERPIKIR dalam Bahasa Indonesia. Uji tiap frasa: apakah orang Indonesia betulan mengucapkan ini ke temannya? Pakai kata-kata user sendiri sebanyak mungkin.
+
+=== JENIS ===
+Pilih SATU:
+- "mulai" — berat memulai, menunda, nggak bisa mulai, buka laptop lalu buka HP.
+- "cemas" — cemas menjelang sesuatu yang belum terjadi (presentasi, ketemu orang, hasil).
+- "suara" — suara kritik dalam kepala, merendahkan diri, "aku nggak cukup".
+- "kepikiran" — satu kejadian yang sudah lewat tapi terus terputar.
+- "jauh" — goal terasa jauh, nggak kelihatan jalannya, mau menyerah.
+- "lain" — tidak masuk yang mana pun.
+Kalau dua jenis bercampur, pilih yang paling menghambat dia HARI INI. Ragu antara "mulai" dan yang lain: kalau inti ceritanya adalah tugas konkret yang belum dimulai, itu "mulai".
+
+=== BERAT ===
+"berat": true HANYA kalau ceritanya menyentuh salah satu ini: pikiran menyakiti diri atau mengakhiri hidup, kekerasan atau pelecehan (dialami atau dilakukan), kehilangan orang yang masih sangat mentah, serangan panik yang berulang, trauma yang masih hidup, atau krisis yang jelas butuh orang sungguhan sekarang. Stres kerja, menunda, malas, capek, kecewa, patah hati biasa — itu BUKAN berat; itu justru bahan latihannya.
+
+Kalau berat: isi "pesan" dengan suara Merlin — hangat, jujur, ringan, 2–3 kalimat. Katakan bahwa yang dia bawa terlalu berharga untuk latihan tujuh menit, dan bahwa untuk hal seperti ini yang paling membantu adalah psikolog bersertifikat — sebut sebagai saran yang ringan dan wajar, seperti teman menyarankan, BUKAN perintah, BUKAN alarm. Tutup dengan bahwa Merlin tetap di sini kalau dia mau cerita lebih dulu. Tanpa diagnosis, tanpa nomor telepon, tanpa kata "darurat" atau "krisis". Kalau tidak berat: "pesan" tidak ada.
+
+=== RESUME — tiga frasa ===
+Ketiganya akan disisipkan APA ADANYA ke tengah kalimat instruksi, misalnya "bayangkan {saat}, {macet}". Jadi:
+- Frasa, bukan kalimat. Tanpa titik di akhir. Tanpa "kamu" atau "aku" sebagai subjek.
+- Maksimal 90 karakter tiap frasa. Lebih pendek lebih baik.
+- Konkret dari ceritanya, bukan disamarkan jadi umum.
+Isinya:
+- "macet": tugas atau hal konkret yang mandek. Contoh: "menulis proposal untuk klien".
+- "saat": kapan atau di situasi apa macetnya muncul. Contoh: "tiap buka laptop di pagi hari".
+- "terasa": yang terasa di badan atau di kepala saat itu. Contoh: "berat di dada, ingin pegang HP".
+Kalau ceritanya tidak menyebut salah satunya, tulis yang paling masuk akal dari ceritanya, tetap pendek — jangan kosong.
+
+=== DILARANG ===
+- Menyebut nama kerangka, teknik, terapi, atau singkatan apa pun.
+- Huruf atau kode jalur indra apa pun.
+- Klaim menyembuhkan, mendiagnosis, atau bahwa ini terapi.
+- Metafora cermin.
+- Menilai atau menasihati user di dalam resume.
+
+=== KELUARAN ===
+Kembalikan HANYA JSON valid, tanpa markdown fence, tanpa teks lain:
+{"jenis": "mulai" | "cemas" | "suara" | "kepikiran" | "jauh" | "lain", "berat": true | false, "resume": {"macet": "...", "saat": "...", "terasa": "..."}, "pesan": "..."}
+"pesan" hanya ada kalau "berat" true. "resume" selalu ada, juga saat berat.`;
+
+const MANAS_BACAAN_SYSTEM_PROMPT = `Kamu menulis tiga baris penutup untuk satu sesi "Gunakan Manasmu" di app Modwiz. Kamu BUKAN chatbot — tidak menyapa, tidak bertanya. Kamu menghasilkan JSON.
+
+Yang terjadi: user membawa satu hal yang mandek, menilai beratnya dari 1 sampai 10, lalu menjalani sampai tiga putaran latihan singkat lewat jalur indranya sendiri (nama jalurnya dikirim di input). Tiap putaran memakai satu pengungkit yang berbeda dan ditutup dengan penilaian ulang. Datanya — jawaban yang dia pilih dan angka tiap putaran — ada di input. Kamu membaca DATA itu, bukan menebak orangnya.
+
+=== BAHASA ===
+Bahasa Indonesia, dipikirkan dalam Bahasa Indonesia. Kalimat yang betul-betul diucapkan orang ke temannya. Kutip kata-kata pilihannya sendiri (dari jawabannya) bila membantu.
+
+=== TIGA BARIS ===
+Masing-masing maksimal 140 karakter, satu kalimat, tanpa daftar:
+- "apa": apa yang ketemu — di putaran mana angkanya paling bergeser, dan pengungkit apa yang bekerja untuk dia. Kalau ada putaran yang tidak menggeser atau menaikkan, sebut juga, datar, tanpa nada gagal.
+- "geser": apa yang berpindah — bukan ulangan baris pertama. Tentang perubahan di dalam pengalamannya (rasa, gambar, bunyi, atau kalimatnya), disebut dengan kata-kata jawabannya sendiri.
+- "pegangan": SATU instruksi untuk lain kali dia menghadapi hal yang sama — kalimat perintah, lewat jalur indranya, memakai pengungkit yang terbukti bekerja untuknya. Kalau tidak ada yang bekerja, pegangannya adalah membawa ini ke Merlin.
+
+=== KALAU "cukup" FALSE ===
+Katakan apa adanya bahwa beratnya belum lepas. Sebut yang SEMPAT bergeser, kalau ada. Serahkan ke Merlin di baris "pegangan". Tanpa penghiburan, tanpa "tapi kamu sudah hebat", dan TANPA sedikit pun kesan bahwa user kurang berusaha atau salah menjawab.
+
+=== DILARANG ===
+- Angka mentah apa pun di ketiga baris — layar sudah menampilkan angkanya. Pakai kata: turun, banyak, sedikit, nggak bergeser, naik.
+- Huruf atau kode jalur apa pun; nama kerangka, teknik, terapi, atau singkatan apa pun.
+- Menyebut satu jalur indra lebih baik dari jalur lain; menyebut ini gaya belajar.
+- Klaim sembuh, terapi, atau diagnosis. Ini latihan.
+- Nasihat umum yang bisa ditempel ke siapa saja. Kalau kalimatnya tidak memakai data sesi ini, tulis ulang.
+- Metafora cermin. Menjadikan Merlin pahlawannya — setiap baris berakhir di tangan user.
+
+=== KELUARAN ===
+Kembalikan HANYA JSON valid, tanpa markdown fence, tanpa teks lain:
+{"apa": "...", "geser": "...", "pegangan": "..."}`;
+
+// Caps on the app's payloads — the app caps first, this is the backstop that
+// keeps a patched client from buying an unbounded model call.
+const RESUME_MAX_STORY_CHARS = 800;
+const RESUME_MIN_STORY_CHARS = 20;
+const RESUME_MAX_PHRASE_CHARS = 90;
+const RESUME_JENIS = ['mulai', 'cemas', 'suara', 'kepikiran', 'jauh', 'lain'];
+const BACAAN_MAX_ROUNDS = 3;
+const BACAAN_MAX_ANSWER_CHARS = 60;
+const BACAAN_MAX_LINE_CHARS = 140;
+
+function clipPhrase(value, max) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim().replace(/[.\s]+$/, '');
+  return trimmed.length > max ? trimmed.slice(0, max).trim() : trimmed;
+}
+
+function isValidResumePayload(body) {
+  return (
+    body &&
+    typeof body.story === 'string' &&
+    body.story.trim().length >= RESUME_MIN_STORY_CHARS &&
+    typeof body.primaryName === 'string' &&
+    body.primaryName.length > 0
+  );
+}
+
+function buildResumeFacts({ story, primaryName }) {
+  return [
+    `[JALUR INDRA — sudah ditampilkan ke user] ${primaryName}`,
+    '',
+    '[CERITA — kata-kata user sendiri]',
+    story.trim().slice(0, RESUME_MAX_STORY_CHARS),
+  ].join('\n');
+}
+
+function parseResumeJson(text) {
+  const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    const resume = parsed && typeof parsed.resume === 'object' && parsed.resume ? parsed.resume : {};
+    const macet = clipPhrase(resume.macet, RESUME_MAX_PHRASE_CHARS);
+    const saat = clipPhrase(resume.saat, RESUME_MAX_PHRASE_CHARS);
+    const terasa = clipPhrase(resume.terasa, RESUME_MAX_PHRASE_CHARS);
+    // A resume with a hole in it cannot be filled into the instructions — that
+    // is a failed read, retried by the app, never a half-resume shown as whole.
+    if (!macet || !saat || !terasa) return null;
+    const berat = parsed.berat === true;
+    return {
+      ok: true,
+      jenis: RESUME_JENIS.includes(parsed.jenis) ? parsed.jenis : 'lain',
+      berat,
+      resume: { macet, saat, terasa },
+      ...(berat && typeof parsed.pesan === 'string' && parsed.pesan.trim()
+        ? { pesan: parsed.pesan.trim() }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function handleManasResume(req, res) {
+  if (!isValidResumePayload(req.body)) {
+    res.status(400).json({ error: 'Invalid Manas resume payload' });
+    return;
+  }
+  try {
+    const response = await anthropic.messages.create({
+      model: AGNI_CHAKTI_BEDROCK_MODEL,
+      max_tokens: 512,
+      system: [{ type: 'text', text: MANAS_RESUME_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: buildResumeFacts(req.body) }],
+    });
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const parsed = parseResumeJson(textBlock ? textBlock.text : '');
+    if (!parsed) {
+      console.error('Manas resume: model reply was not valid JSON');
+      res.status(502).json({ error: 'Belum bisa membaca ceritamu sekarang. Coba lagi sebentar lagi.' });
+      return;
+    }
+    // A heavy story routes to a person, and the message that does it is
+    // written HERE, never in the app — same safety pattern Merlin's chat
+    // follows, so one deploy retunes it everywhere.
+    if (parsed.berat && !parsed.pesan) {
+      parsed.pesan =
+        'Yang kamu bawa ini terlalu berharga buat latihan tujuh menit. Untuk hal seperti ini, ngobrol dengan psikolog bersertifikat biasanya yang paling membantu — bukan karena kamu lemah, tapi karena ini layak ditemani orang yang memang terlatih. Aku tetap di sini kalau kamu mau cerita dulu.';
+    }
+    res.status(200).json(parsed);
+  } catch (err) {
+    console.error('Manas resume/Bedrock error:', err);
+    res.status(502).json({ error: 'Belum bisa membaca ceritamu sekarang. Coba lagi sebentar lagi.' });
+  }
+}
+
+function isValidBacaanPayload(body) {
+  return (
+    body &&
+    typeof body.primaryName === 'string' &&
+    body.resume &&
+    typeof body.resume.macet === 'string' &&
+    typeof body.awal === 'number' &&
+    Array.isArray(body.rounds) &&
+    body.rounds.length > 0 &&
+    typeof body.cukup === 'boolean'
+  );
+}
+
+// The deltas are computed here, not left to the model: "which round moved the
+// number" is the one fact the reading turns on, and arithmetic is the one
+// thing a language model gets wrong for free.
+function buildBacaanFacts({ primaryName, resume, awal, rounds, cukup }) {
+  const lines = [];
+  lines.push(`[JALUR INDRA] ${primaryName}`);
+  lines.push('');
+  lines.push('[YANG DIHADAPI — resume yang sudah dia setujui]');
+  lines.push(`Yang macet: ${clipPhrase(resume.macet, RESUME_MAX_PHRASE_CHARS)}`);
+  lines.push(`Muncul saat: ${clipPhrase(resume.saat, RESUME_MAX_PHRASE_CHARS)}`);
+  lines.push(`Yang terasa: ${clipPhrase(resume.terasa, RESUME_MAX_PHRASE_CHARS)}`);
+  lines.push('');
+  lines.push(`[ANGKA] Awal ${awal} dari 10 (10 = seberat-beratnya).`);
+
+  let previous = awal;
+  for (const round of rounds.slice(0, BACAAN_MAX_ROUNDS)) {
+    if (!round || typeof round.uji !== 'number') continue;
+    const n = typeof round.n === 'number' ? round.n : 0;
+    const delta = previous - round.uji;
+    const arah = delta > 0 ? `turun ${delta}` : delta < 0 ? `naik ${-delta}` : 'tidak bergeser';
+    lines.push('');
+    lines.push(
+      `[PUTARAN ${n}] pengungkit: ${typeof round.pengungkit === 'string' ? round.pengungkit : '-'}; ${previous} → ${round.uji} (${arah}).`
+    );
+    const jawaban = round.jawaban && typeof round.jawaban === 'object' ? round.jawaban : {};
+    for (const [key, value] of Object.entries(jawaban)) {
+      if (typeof value !== 'string' || !value.trim()) continue;
+      lines.push(`- ${key}: ${value.trim().slice(0, BACAAN_MAX_ANSWER_CHARS)}`);
+    }
+    previous = round.uji;
+  }
+
+  lines.push('');
+  lines.push(
+    cukup
+      ? '[HASIL] cukup — beratnya lepas menurut aturan berhenti sesi.'
+      : '[HASIL] BELUM lepas setelah semua putaran. Tulis apa adanya; serahkan ke Merlin di "pegangan".'
+  );
+  return lines.join('\n');
+}
+
+function parseBacaanJson(text) {
+  const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    const line = (v) => (typeof v === 'string' ? v.trim().slice(0, BACAAN_MAX_LINE_CHARS) : '');
+    const lines = { apa: line(parsed.apa), geser: line(parsed.geser), pegangan: line(parsed.pegangan) };
+    // Three lines or none — a reading with a missing line is a failed call
+    // the app retries, not a screen with a hole in it.
+    if (!lines.apa || !lines.geser || !lines.pegangan) return null;
+    return lines;
+  } catch {
+    return null;
+  }
+}
+
+async function handleManasBacaan(req, res) {
+  if (!isValidBacaanPayload(req.body)) {
+    res.status(400).json({ error: 'Invalid Manas bacaan payload' });
+    return;
+  }
+  try {
+    const response = await anthropic.messages.create({
+      model: AGNI_CHAKTI_BEDROCK_MODEL,
+      max_tokens: 512,
+      system: [{ type: 'text', text: MANAS_BACAAN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: buildBacaanFacts(req.body) }],
+    });
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const lines = parseBacaanJson(textBlock ? textBlock.text : '');
+    if (!lines) {
+      console.error('Manas bacaan: model reply was not valid JSON');
+      res.status(502).json({ error: 'Belum bisa menulis bacaannya sekarang. Coba lagi sebentar lagi.' });
+      return;
+    }
+    res.status(200).json({ ok: true, lines });
+  } catch (err) {
+    console.error('Manas bacaan/Bedrock error:', err);
+    res.status(502).json({ error: 'Belum bisa menulis bacaannya sekarang. Coba lagi sebentar lagi.' });
+  }
+}
+
 // === AGNI CHAKTI ============================================================
 
 // The four tendency names are the only vocabulary the model is given for the
@@ -355,6 +641,14 @@ module.exports = async function handler(req, res) {
   // every client shipped before this field existed keeps working unchanged.
   if (req.body && req.body.instrument === 'manas-bahasa') {
     await handleManasBahasa(req, res);
+    return;
+  }
+  if (req.body && req.body.instrument === 'manas-resume') {
+    await handleManasResume(req, res);
+    return;
+  }
+  if (req.body && req.body.instrument === 'manas-bacaan') {
+    await handleManasBacaan(req, res);
     return;
   }
 
