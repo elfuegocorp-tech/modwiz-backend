@@ -321,7 +321,7 @@ Yang terjadi: user membawa satu hal yang mandek, menilai beratnya dari 1 sampai 
 Bahasa Indonesia, dipikirkan dalam Bahasa Indonesia. Kalimat yang betul-betul diucapkan orang ke temannya. Kutip kata-kata pilihannya sendiri (dari jawabannya) bila membantu.
 
 === TIGA BARIS ===
-Masing-masing maksimal 140 karakter, satu kalimat, tanpa daftar:
+Masing-masing SATU kalimat pendek — paling banyak 20 kata, kira-kira 140 karakter. Ini batas keras, bukan saran: kalimat yang lebih panjang dipotong di layar dan user membaca kalimat buntung. Kalau kalimatmu lebih panjang, buang anak kalimatnya, bukan hurufnya. Tanpa daftar:
 - "apa": apa yang ketemu — di putaran mana angkanya paling bergeser, dan pengungkit apa yang bekerja untuk dia. Kalau ada putaran yang tidak menggeser atau menaikkan, sebut juga, datar, tanpa nada gagal.
 - "geser": apa yang berpindah — bukan ulangan baris pertama. Tentang perubahan di dalam pengalamannya (rasa, gambar, bunyi, atau kalimatnya), disebut dengan kata-kata jawabannya sendiri.
 - "pegangan": SATU instruksi untuk lain kali dia menghadapi hal yang sama — kalimat perintah, lewat jalur indranya, memakai pengungkit yang terbukti bekerja untuknya. Kalau tidak ada yang bekerja, pegangannya adalah membawa ini ke Merlin.
@@ -349,7 +349,25 @@ const RESUME_MAX_PHRASE_CHARS = 90;
 const RESUME_JENIS = ['mulai', 'cemas', 'suara', 'kepikiran', 'jauh', 'lain'];
 const BACAAN_MAX_ROUNDS = 3;
 const BACAAN_MAX_ANSWER_CHARS = 60;
+// What the prompt asks for, and the backstop behind it. The model does not
+// count characters well; on 2026-09-07 it wrote ~160-char lines and a plain
+// slice(0, 140) handed the user "seperti waktu kamu des". So the cut is now a
+// last resort, at a sentence end or a word end with an ellipsis, and only past
+// the backstop — same rule as the app's journal caps (sentence + …, never a
+// severed word).
 const BACAAN_MAX_LINE_CHARS = 140;
+const BACAAN_HARD_LINE_CHARS = 300;
+
+function clipLine(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  if (text.length <= BACAAN_HARD_LINE_CHARS) return text;
+  const cut = text.slice(0, BACAAN_HARD_LINE_CHARS);
+  const sentenceEnd = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  if (sentenceEnd > BACAAN_HARD_LINE_CHARS / 2) return cut.slice(0, sentenceEnd + 1);
+  const wordEnd = cut.lastIndexOf(' ');
+  return `${cut.slice(0, wordEnd > 0 ? wordEnd : cut.length).replace(/[\s,;:—-]+$/, '')}…`;
+}
 
 function clipPhrase(value, max) {
   if (typeof value !== 'string') return '';
@@ -493,8 +511,12 @@ function parseBacaanJson(text) {
   const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
   try {
     const parsed = JSON.parse(cleaned);
-    const line = (v) => (typeof v === 'string' ? v.trim().slice(0, BACAAN_MAX_LINE_CHARS) : '');
-    const lines = { apa: line(parsed.apa), geser: line(parsed.geser), pegangan: line(parsed.pegangan) };
+    const lines = { apa: clipLine(parsed.apa), geser: clipLine(parsed.geser), pegangan: clipLine(parsed.pegangan) };
+    // Logged, not enforced: the prompt's own limit, so a drift past it shows
+    // up in the function logs before it shows up as a wall of text.
+    for (const [key, text] of Object.entries(lines)) {
+      if (text.length > BACAAN_MAX_LINE_CHARS) console.warn(`Manas bacaan: "${key}" ran to ${text.length} chars`);
+    }
     // Three lines or none — a reading with a missing line is a failed call
     // the app retries, not a screen with a hole in it.
     if (!lines.apa || !lines.geser || !lines.pegangan) return null;
