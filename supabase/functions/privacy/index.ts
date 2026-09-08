@@ -58,7 +58,7 @@ async function readState(user: WpUser) {
     // back — an audit trail's job is not to flatter.
     supabase
       .from('entitlements')
-      .select('started_at')
+      .select('started_at, expires_at, grace_until, status, source')
       .eq('wp_user_id', user.id)
       .in('status', ['active', 'grace'])
       .maybeSingle(),
@@ -90,6 +90,15 @@ async function readState(user: WpUser) {
     // the RPC rather than on the row's own existence: an expired row still has
     // a started_at, and printing it would tell a lapsed member they're current.
     privilegeSince: privilege ? (liveEntitlement?.started_at ?? null) : null,
+    // MASA PRIVILEGE ALPHA (sql/alpha-privilege-expiry.sql). Display only,
+    // same rule as privilegeSince: when the current period ends, whether it
+    // is already in its grace week, and where it came from — so the app can
+    // print "berakhir 19 Nov" and the one question at the downgrade, without
+    // ever deciding access itself.
+    privilegeUntil: privilege ? (liveEntitlement?.expires_at ?? null) : null,
+    privilegeGraceUntil: privilege ? (liveEntitlement?.grace_until ?? null) : null,
+    privilegeStatus: privilege ? (liveEntitlement?.status ?? null) : null,
+    privilegeSource: privilege ? (liveEntitlement?.source ?? null) : null,
   };
 }
 
@@ -206,6 +215,24 @@ const authenticated = withAuth('privacy', async (req, user, path) => {
     // intentions, and a toggle is far too light a gesture to mean the second
     // one. Deleting is Reset Data Saya, which asks properly.
     return json({ ok: true, ...(await readState(user)) });
+  }
+
+  // ---------------------------------------------------------- exit-survey
+  // The one question at the downgrade moment ("Kenapa belum lanjut?") —
+  // Modwiz's first willingness-to-pay data (modwiz-app PROMPT §C2.3). One row
+  // per user, overwritten on a second answer; skipping sends nothing.
+  if (path === 'exit-survey' && req.method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const reason = typeof body?.reason === 'string' ? body.reason : '';
+    if (!['harga', 'belum_perlu', 'fitur_kurang', 'lainnya'].includes(reason)) {
+      return json({ error: 'reason must be harga | belum_perlu | fitur_kurang | lainnya' }, 400);
+    }
+    const note = typeof body?.note === 'string' ? body.note.trim().slice(0, 1000) : '';
+    const { error } = await supabase
+      .from('privilege_exit_survey')
+      .upsert({ wp_user_id: user.id, reason, note: note || null, answered_at: new Date().toISOString() }, { onConflict: 'wp_user_id' });
+    if (error) throw error;
+    return json({ ok: true });
   }
 
   // ---------------------------------------------------------------- reset

@@ -4,6 +4,7 @@ const { supabase } = require('../lib/supabase');
 const { sendExpoPush } = require('../lib/expo-push');
 const { upsertPushToken, handlePushTokenSync, runDailyNudge } = require('../lib/merlin-nudge');
 const { runStreakLapseSweep } = require('../lib/streak-relight');
+const { runPrivilegeExpirySweep } = require('../lib/privilege-expiry');
 const { listSkillEntitlements, listUnlocks } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
@@ -1967,7 +1968,16 @@ module.exports = async function handler(req, res) {
       } catch (err) {
         console.error('Streak lapse sweep failed:', err);
       }
-      res.status(200).json({ ...nudgeStats, streak: streakStats });
+      // Masa Privilege alpha (lib/privilege-expiry.js): status flips and the
+      // two notices. Same isolation — its failure never fails the run.
+      let privilegeStats = null;
+      try {
+        privilegeStats = await runPrivilegeExpirySweep();
+        console.log('Privilege expiry sweep:', JSON.stringify(privilegeStats));
+      } catch (err) {
+        console.error('Privilege expiry sweep failed:', err);
+      }
+      res.status(200).json({ ...nudgeStats, streak: streakStats, privilege: privilegeStats });
     } catch (err) {
       console.error('Merlin daily nudge failed:', err);
       res.status(500).json({ error: 'Nudge run failed' });
