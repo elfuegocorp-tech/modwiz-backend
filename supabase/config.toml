@@ -60,3 +60,10 @@ verify_jwt = false
 # bagikan before withAuth ever ran. The catalog note above is the same story.
 [functions.kisah]
 verify_jwt = false
+
+# handoff: The Handoff's extraction (last night's Merlin chat -> this morning's
+# goal boxes). Same WordPress Basic header; consent re-checked inside. First
+# function here to call Bedrock — needs AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+# AWS_REGION as Edge Function secrets.
+[functions.handoff]
+verify_jwt = false
