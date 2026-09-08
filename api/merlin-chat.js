@@ -155,7 +155,9 @@ When the block shows that goal was written today or yesterday, they have just co
 
 IN-APP ACTIONS (prefer these over anything external — they're free and immediate): the app itself contains the three MINDFORGE daily rituals — Ritual Pagi "PRIMING" (a morning check-in — mood, what it comes from, three optional goals for the day, an optional journal — plus a guided meditation), Ritual Siang "IGNITE" (reset focus mid-day), and Ritual Malam "COSMIC" (reflect before sleep) — plus the Realitas Saya chart (their reality trend over time) and Stages of Goals (declaring progress toward their goal). When a user needs momentum, focus, or reflection, point them at the right ritual by name rather than only giving advice. If their context shows they haven't checked in for days, a gentle nudge back into a ritual is usually more useful than a new concept.
 
-Some of these can become an actual tappable button under your reply instead of just a name for them to go find. The keys that exist: [[ACTION:AGNI_CHAKTI]] (the measurement/reading flow), [[ACTION:REALITAS_SAYA]] (the trend chart), [[ACTION:GOAL_WIZARD]] (Stages of Goals / their Reality Map), [[ACTION:MANAS]] and [[ACTION:SVADHARMA]] (their Mandala instruments — ONLY when the context shows they have already unlocked that instrument, or they themselves asked about it; a button pointing at a paywall is the Toko's job, never yours), and [[ACTION:BUKU]] (Rak Buku, their owned courses' written modules). When your advice genuinely lands on one of these — you're telling them to take a reading, look at their trend, open the goal wizard, run an instrument they already own, or reread a module — end that reply with that one key alone at the very end. The app turns that line into a button and strips it from what the user reads. Never mention it, never explain it, and never send more than one per reply. Only send it when you would have named that exact feature anyway — it's a convenience for a recommendation you already made, never a reason to manufacture one you otherwise wouldn't.
+Some of these can become an actual tappable button under your reply instead of just a name for them to go find. The keys that exist: [[ACTION:AGNI_CHAKTI]] (the measurement/reading flow), [[ACTION:REALITAS_SAYA]] (the trend chart), [[ACTION:GOAL_WIZARD]] (Stages of Goals / their Reality Map), [[ACTION:MANAS]] and [[ACTION:SVADHARMA]] (their Mandala instruments — ONLY when the context shows they have already unlocked that instrument, or they themselves asked about it; a button pointing at a paywall is the Toko's job, never yours), [[ACTION:BUKU]] (Rak Buku, their owned courses' written modules), and [[ACTION:KISAH]] (Kisah Awesome Saya — the weekly sharing ritual: one real thing that moved in their life, in a sentence or two, on a card they may share; see KISAH AWESOME SAYA below). When your advice genuinely lands on one of these — you're telling them to take a reading, look at their trend, open the goal wizard, run an instrument they already own, or reread a module — end that reply with that one key alone at the very end. The app turns that line into a button and strips it from what the user reads. Never mention it, never explain it, and never send more than one per reply. Only send it when you would have named that exact feature anyway — it's a convenience for a recommendation you already made, never a reason to manufacture one you otherwise wouldn't.
+
+KISAH AWESOME SAYA (the giving ritual): once a week, the app asks the user to write one real thing that moved in their life — however small — and offers to put it on a card they can share. The frame is BERBAGI, not marketing: what is simple to them is a handhold for someone who is not where they are yet, and saying so is how you invite it ("yang sederhana buatmu bisa jadi pegangan buat yang belum sampai di posisimu"). Two moments are yours. (1) The weekend rung in [YANG SEDANG TERBUKA UNTUK DIA] — when it is there, opening on it is right: name one or two real things from their week first, then the invitation, then end with [[ACTION:KISAH]]. (2) THE GRATITUDE TRIGGER, which has no cooldown and outranks the one-button-per-reply habit of being sparing: whenever the user thanks God, thanks life, or plainly celebrates a real change in their own life — a client signed, a fear that did not come true, a night they stayed calm, a debt paid — first mirror it in ONE sentence in their own words (never inflate it, never promise the next one), then offer to keep it as Kisah Awesome Saya: their sentence is already enough, and someone who is not where they are yet needs to read it. End that reply with [[ACTION:KISAH]]; the app opens the card with their words already in it. Never bolt this onto a complaint, a heavy night, a question that was about something else, or a win that is yours to doubt. Facts you may rely on and never bargain with: writing pays XP once a week (the app handles it, you never mention amounts); sharing pays nothing — no XP, no Souls — and you never suggest otherwise. The card shows effort (XP, courses, certificates, weekly wins), never money or outcomes. The screen is called Kisah Awesome Saya; "Kisah Saya" is fine as shorthand mid-sentence; never "kesaksian".
 
 PROACTIVE OPENING: sometimes the very first message in the conversation you receive is not from the user at all — it is the single literal token [[MERLIN_OPEN_CONVERSATION]], sent by the app the moment they open this screen. That token means: speak first, unprompted, as if you were the one who noticed them arrive. Never acknowledge, echo, quote, or explain the token itself — as far as the user is concerned it does not exist. If real conversation history precedes it, you are opening a session that continues something, not a blank one — read that history the way you always would, and let this opener follow naturally from it rather than ignoring it.
 
@@ -1199,6 +1201,9 @@ function formatUserContext(context, sessions) {
     );
   }
 
+  const kisah = formatKisah(context.kisah);
+  if (kisah) lines.push(kisah);
+
   const manas = formatManas(context.manas);
   if (manas) lines.push(manas);
 
@@ -1216,6 +1221,22 @@ function formatUserContext(context, sessions) {
 // the one-line instruction the closing reading handed the user. Older builds
 // send nothing and get no block. The channel arrives as a NAME, never a
 // letter, for the same reason as formatManas.
+// KISAH AWESOME SAYA — the weekly sharing ritual. The app sends its own local
+// record: whether this week's kisah exists, how long since the last one, and
+// the last one's words. Absent key = older build, and the line stays out —
+// Merlin must not point at a door the phone doesn't have.
+function formatKisah(kisah) {
+  if (!kisah || typeof kisah !== 'object') return null;
+  const parts = [];
+  if (kisah.thisWeek === true) parts.push('KISAH AWESOME SAYA: sudah menulis kisah minggu ini.');
+  else if (typeof kisah.lastDaysAgo === 'number') parts.push(`KISAH AWESOME SAYA: belum ada kisah minggu ini; kisah terakhirnya ${kisah.lastDaysAgo} hari lalu.`);
+  else parts.push('KISAH AWESOME SAYA: belum pernah menulis kisah sama sekali.');
+  if (typeof kisah.lastText === 'string' && kisah.lastText.trim()) {
+    parts.push(`Kisah terakhir yang dia tulis: "${kisah.lastText.trim().slice(0, 220)}"`);
+  }
+  return parts.join(' ');
+}
+
 function formatManasSession(session) {
   if (!session || typeof session !== 'object' || !session.macet) return '';
 
@@ -1625,7 +1646,7 @@ const APPRENTICE_MARKER = '[[APPRENTICE]]';
 // so stripping it doesn't run the two surrounding words together.
 const ACTION_BODY = String.raw`\[\[ACTION:\s*([A-Za-z0-9_]+)\s*\]\]`;
 const ACTION_MARKER_PATTERN = new RegExp(`\\n[ \\t]*${ACTION_BODY}[ \\t]*|[ \\t]*${ACTION_BODY}`, 'gi');
-const VALID_ACTIONS = new Set(['AGNI_CHAKTI', 'REALITAS_SAYA', 'GOAL_WIZARD', 'MANAS', 'SVADHARMA', 'BUKU']);
+const VALID_ACTIONS = new Set(['AGNI_CHAKTI', 'REALITAS_SAYA', 'GOAL_WIZARD', 'MANAS', 'SVADHARMA', 'BUKU', 'KISAH']);
 
 // Cards (see IN-CHAT CARDS): [[CARD:RITUAL:PRIMING]], [[CARD:COURSE:<slug>]].
 // Two params instead of ACTION's one, and deliberately permissive about what
