@@ -106,7 +106,7 @@ functions are, so each one is a router:
 |---|---|
 | `privacy` | `/state`, `/ai-consent`, `/super-memory`, `/reset`, `/purge` |
 | `content` | `/user-data`, `/onboarding`, `/goals`, `/stage`, `/stage/reset`, `/checkins`, `/mindforge`, `/lesson-notes`, `/lesson-notes/delete`, `/merlin-messages` |
-| `kisah` | `/save`, `/shared`, `/list`, `/stats` — Kisah Awesome Saya (plain text by design; emails every card to the Modwiz inbox via Resend: `RESEND_API_KEY`, optional `KISAH_EMAIL_TO` / `KISAH_EMAIL_FROM`; table in `sql/kisah.sql`) |
+| `kisah` | `/save`, `/shared`, `/list`, `/stats` — Kisah Awesome Saya (plain text by design; emails every card to the Modwiz inbox through the site's own wp_mail via the "Modwiz App REST kisah-mail" snippet: `MODWIZ_KISAH_MAIL_KEY` (+ optional `MODWIZ_KISAH_MAIL_URL`); Resend fallback via `RESEND_API_KEY`; table in `sql/kisah.sql`) |
 
 Every route authenticates with the user's own WordPress Basic header, except
 `privacy/purge`: it is called *after* the WordPress user has been deleted, so

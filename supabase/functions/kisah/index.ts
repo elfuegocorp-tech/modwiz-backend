@@ -18,14 +18,20 @@
 // marketing may re-share it. DISIMPAN = saved only; keep, do not publish.
 // Never Notion — the workspace is confidential (Rheza).
 //
-// Email goes through Resend's REST API (one secret, no SMTP from Deno). On the
-// free tier Resend only delivers to the account owner's own address, so the
-// Resend account must be created WITH sales.modwiz@gmail.com — then the
-// default from-address below works with no domain verification.
+// TRANSPORT — WordPress first (Rheza, 2026-09-08: no new accounts). The site
+// already sends mail, so the card is POSTed server-to-server to the "Modwiz
+// App REST kisah-mail" snippet (modwiz-app/wordpress/modwiz-kisah-mail.php),
+// which wp_mail()s it with the JPEG attached. Configured by ONE secret:
+//   supabase secrets set MODWIZ_KISAH_MAIL_KEY=<same value as the snippet>
+// (MODWIZ_KISAH_MAIL_URL overrides the endpoint; defaults to modwizmastery.com.)
+//
+// Fallback: Resend's REST API when RESEND_API_KEY is set and the WP key is not.
+// On Resend's free tier mail only reaches the account owner's own address, so
+// that account would have to be created WITH sales.modwiz@gmail.com.
 //
 // Called by modwiz-app/services/kisah.ts.
 
-import { json, supabase, withAuth, type WpUser } from '../_shared/http.ts';
+import { json, supabase, withAuth, WP_BASE_URL, type WpUser } from '../_shared/http.ts';
 
 const MAX_TEXT_CHARS = 220;
 const MAX_FIELD_CHARS = 48;
@@ -153,13 +159,12 @@ function escapeHtml(value: string | null | undefined): string {
  * signal for a later backfill.
  */
 async function emailKisah(row: KisahRow, imageBase64: string | null, shared: boolean): Promise<boolean> {
-  const apiKey = Deno.env.get('RESEND_API_KEY');
-  if (!apiKey) {
-    console.error('[kisah/email] RESEND_API_KEY is not set — kisah saved, not emailed.', { id: row.id });
+  const wpKey = Deno.env.get('MODWIZ_KISAH_MAIL_KEY');
+  const resendKey = Deno.env.get('RESEND_API_KEY');
+  if (!wpKey && !resendKey) {
+    console.error('[kisah/email] Neither MODWIZ_KISAH_MAIL_KEY nor RESEND_API_KEY is set — kisah saved, not emailed.', { id: row.id });
     return false;
   }
-  const to = Deno.env.get('KISAH_EMAIL_TO') || EMAIL_TO_DEFAULT;
-  const from = Deno.env.get('KISAH_EMAIL_FROM') || EMAIL_FROM_DEFAULT;
 
   const name = row.first_name || `user ${row.wp_user_id}`;
   const subject =
@@ -184,11 +189,36 @@ async function emailKisah(row: KisahRow, imageBase64: string | null, shared: boo
       : `<p style="font:12px system-ui;color:#b00">Tanpa lampiran — app tidak mengirim gambar.</p>`,
   ].join('');
 
-  const attachments = imageBase64 ? [{ filename: `kisah-${row.id}.jpg`, content: imageBase64 }] : [];
+  const filename = `kisah-${row.id}.jpg`;
 
+  // 1. WordPress — the site's own mailer.
+  if (wpKey) {
+    const url = Deno.env.get('MODWIZ_KISAH_MAIL_URL') || `${WP_BASE_URL}/wp-json/modwiz/v1/kisah-mail`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Modwiz-Kisah-Key': wpKey },
+      body: JSON.stringify({
+        subject,
+        html,
+        attachment: imageBase64 ? { filename, base64: imageBase64 } : null,
+      }),
+    }).catch((err) => {
+      console.error('[kisah/email] WordPress unreachable', { id: row.id, err: String(err) });
+      return null;
+    });
+    if (res?.ok) return true;
+    console.error('[kisah/email] WordPress refused', { id: row.id, status: res?.status, body: await res?.text().catch(() => '') });
+    if (!resendKey) return false;
+    // fall through to Resend
+  }
+
+  // 2. Resend — only when configured.
+  const to = Deno.env.get('KISAH_EMAIL_TO') || EMAIL_TO_DEFAULT;
+  const from = Deno.env.get('KISAH_EMAIL_FROM') || EMAIL_FROM_DEFAULT;
+  const attachments = imageBase64 ? [{ filename, content: imageBase64 }] : [];
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to, subject, html, attachments }),
   });
   if (!res.ok) {
