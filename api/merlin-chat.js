@@ -3,6 +3,7 @@ const { getEnergyState, consumeEnergy, tokensToEnergy, msUntilReset, msUntilWeek
 const { supabase } = require('../lib/supabase');
 const { sendExpoPush } = require('../lib/expo-push');
 const { upsertPushToken, handlePushTokenSync, runDailyNudge } = require('../lib/merlin-nudge');
+const { runStreakLapseSweep } = require('../lib/streak-relight');
 const { listSkillEntitlements, listUnlocks } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
@@ -1956,7 +1957,17 @@ module.exports = async function handler(req, res) {
       const slot = req.headers['x-vercel-cron-schedule'] === '0 13 * * *' ? 'malam' : 'pagi';
       const nudgeStats = await runDailyNudge(slot);
       console.log('Merlin daily nudge:', JSON.stringify(nudgeStats));
-      res.status(200).json(nudgeStats);
+      // Streak Relight's lapse sweep + its two pushes ride the same cron —
+      // no new Vercel function (see lib/streak-relight.js). Its own failure
+      // is logged, never allowed to fail the nudge run that already ran.
+      let streakStats = null;
+      try {
+        streakStats = await runStreakLapseSweep();
+        console.log('Streak lapse sweep:', JSON.stringify(streakStats));
+      } catch (err) {
+        console.error('Streak lapse sweep failed:', err);
+      }
+      res.status(200).json({ ...nudgeStats, streak: streakStats });
     } catch (err) {
       console.error('Merlin daily nudge failed:', err);
       res.status(500).json({ error: 'Nudge run failed' });

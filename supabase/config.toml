@@ -67,3 +67,8 @@ verify_jwt = false
 # AWS_REGION as Edge Function secrets.
 [functions.handoff]
 verify_jwt = false
+
+# streak: Streak Relight. Same WordPress Basic header; the relight itself is
+# the relight_streak() SQL function (sql/streak-relight.sql), one transaction.
+[functions.streak]
+verify_jwt = false

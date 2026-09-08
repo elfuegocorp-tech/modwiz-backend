@@ -21,6 +21,7 @@ const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/
 const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards, hidAtSomePointDuring } = require('../../lib/leaderboard');
 const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
 const { listUnlocks, CONSUMABLE_PRICES } = require('../../lib/store-products');
+const { relightStateFor } = require('../../lib/streak-relight');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -219,6 +220,9 @@ module.exports = async function handler(req, res) {
         }
       : null;
 
+    const { data: privilege, error: privilegeError } = await supabase.rpc('is_privilege', { p_wp_user_id: wpUserId });
+    if (privilegeError) throw privilegeError;
+
     res.status(200).json({
       streakCount: state ? state.streak_count : 0,
       xpTotal: state ? state.xp_total : 0,
@@ -243,6 +247,11 @@ module.exports = async function handler(req, res) {
       // Souls" button. Unlock prices are NOT here: the Toko catalog shows
       // those from the app and the server only checks them at debit time.
       prices: CONSUMABLE_PRICES,
+      // STREAK RELIGHT (lib/streak-relight.js): the lapse waiting to be relit,
+      // if any, plus the price, the window and whether this member's free
+      // monthly relight is still unused. The tier comes from is_privilege()
+      // — the app never decides who is free.
+      relight: relightStateFor(state, privilege === true),
     });
   } catch (err) {
     console.error('gamification/state error:', err);
