@@ -163,8 +163,25 @@ async function fetchOpenGoalRow(wpUserId: number): Promise<Row | null> {
 
 // --- check-ins ---------------------------------------------------------------
 
+// One {source, carried} per goal, same index (app: utils/handoff.ts GoalMeta).
+// Re-validated here rather than stored as sent: the source vocabulary is what
+// the Handoff's acceptance rate is computed over, and one stray value would
+// poison that query.
+type GoalMeta = { source: 'own' | 'carry' | 'merlin'; carried: number };
+function goalMetaArray(value: unknown): GoalMeta[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: GoalMeta[] = [];
+  for (const item of value) {
+    const source = item?.source;
+    if (source !== 'own' && source !== 'carry' && source !== 'merlin') return null;
+    const carried = Number(item?.carried);
+    out.push({ source, carried: Number.isFinite(carried) && carried >= 0 ? Math.floor(carried) : 0 });
+  }
+  return out;
+}
+
 const CHECKIN_COLUMNS =
-  'entry_date, type, mood, hati, logika, goals_done, focus_tags, ' +
+  'entry_date, type, mood, hati, logika, goals_done, goal_meta, focus_tags, ' +
   'gratitude_marked, favorited, saved_at, goals_enc, journal_text_enc, ' +
   'pain_text_enc, gratitude_text_enc, enc_scheme, key_version';
 
@@ -185,6 +202,7 @@ async function decryptCheckinRow(row: Row, wpUserId: number) {
     mood: row.mood === null || row.mood === undefined ? null : Number(row.mood),
     goals: parseJsonField<string[] | null>(plain.goals, null),
     goalsDone: (row.goals_done as boolean[] | null) ?? null,
+    goalMeta: (row.goal_meta as GoalMeta[] | null) ?? null,
     hati: row.hati === null || row.hati === undefined ? null : Number(row.hati),
     logika: row.logika === null || row.logika === undefined ? null : Number(row.logika),
     journalText: plain.journalText,
@@ -627,6 +645,7 @@ const handler = withAuth('content', async (req, user, path) => {
         hati: smallint(body?.hati, 1, 10),
         logika: smallint(body?.logika, 1, 10),
         goals_done: Array.isArray(body?.goalsDone) ? body.goalsDone.map(boolOrFalse) : null,
+        goal_meta: goalMetaArray(body?.goalMeta),
         focus_tags: slugArray(body?.focusTags),
         gratitude_marked: boolOrFalse(body?.gratitudeMarked),
         favorited: boolOrFalse(body?.favorited),

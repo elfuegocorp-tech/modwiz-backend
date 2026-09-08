@@ -63,6 +63,10 @@ create table if not exists checkins (
   hati         smallint check (hati between 1 and 10),      -- evening only
   logika       smallint check (logika between 1 and 10),    -- evening only
   goals_done   jsonb,                                       -- evening only
+  -- Where each goal came from — [{source:'own'|'carry'|'merlin', carried:n}],
+  -- same index as the goals. Plain: no prose in it, and The Handoff's
+  -- acceptance/achievement rates are read off it (app PROMPT §D5, 2026-09-09).
+  goal_meta    jsonb,
   focus_tags   jsonb,                                       -- keys, not prose
   gratitude_marked boolean not null default false,
   favorited    boolean not null default false,
@@ -353,6 +357,7 @@ end $$;
 -- column added above mirrored here, and never write a destructive statement in
 -- this block — it runs against live data every time the file is re-pasted.
 alter table mindforge_entries add column if not exists program text;
+alter table checkins         add column if not exists goal_meta jsonb;
 alter table lesson_notes     add column if not exists lesson_title text;
 alter table lesson_notes     add column if not exists course_title text;
 alter table lesson_notes     add column if not exists favorited boolean not null default false;
