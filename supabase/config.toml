@@ -53,3 +53,10 @@ verify_jwt = false
 # all — it is keyed by MODWIZ_RTDN_KEY in the URL instead (see billing/index.ts).
 [functions.billing]
 verify_jwt = false
+
+# kisah: Kisah Awesome Saya. Same WordPress Basic header as every other
+# function. Missed on the first deploy (2026-09-08) — the gateway demanded a
+# Supabase JWT and the app saw "Request failed (status 401)" on Simpan &
+# bagikan before withAuth ever ran. The catalog note above is the same story.
+[functions.kisah]
+verify_jwt = false
