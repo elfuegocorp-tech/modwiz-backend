@@ -25,7 +25,11 @@
 // Consent is re-checked here (profiles.ai_context_consent_*), the same way
 // every other AI read is: the app gates too, but the app is not the gate.
 
-import { AnthropicBedrock } from '@anthropic-ai/bedrock-sdk';
+// Full npm specifier, not the deno.json import map: `supabase functions
+// deploy` uploads only this file and _shared/, so the remote bundler never
+// sees the map (first deploy, 2026-09-09: "Relative import path not
+// prefixed with / or ./").
+import { AnthropicBedrock } from 'npm:@anthropic-ai/bedrock-sdk@0.32.4';
 
 import { json, supabase, withAuth } from '../_shared/http.ts';
 
