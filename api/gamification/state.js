@@ -220,8 +220,18 @@ module.exports = async function handler(req, res) {
         }
       : null;
 
-    const { data: privilege, error: privilegeError } = await supabase.rpc('is_privilege', { p_wp_user_id: wpUserId });
-    if (privilegeError) throw privilegeError;
+    // Tier for the relight block below. Read defensively, the way
+    // lib/energy.js reads the same RPC: this is one optional field on a
+    // payload that carries streak, XP and Souls, and useStreak() in the app
+    // leaves all three at 0 when the whole call fails. A tier we could not
+    // read is reported as "not Privilege" (they lose a free relight they can
+    // still buy), never as a 500 that blanks someone's Home.
+    const { data: privilege, error: privilegeError } = await supabase.rpc('is_privilege', {
+      p_wp_user_id: wpUser.id,
+    });
+    if (privilegeError) {
+      console.error('gamification/state is_privilege check failed:', privilegeError);
+    }
 
     res.status(200).json({
       streakCount: state ? state.streak_count : 0,
