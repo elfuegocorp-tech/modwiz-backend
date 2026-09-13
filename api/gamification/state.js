@@ -235,6 +235,11 @@ module.exports = async function handler(req, res) {
 
     res.status(200).json({
       streakCount: state ? state.streak_count : 0,
+      // The streak's last counted day, as the phone sent it (YYYY-MM-DD, the
+      // device's own calendar). The app schedules its "streak hampir
+      // terputus" notice for the evening after it — without this, it cannot
+      // tell a streak that is safe today from one that ends tonight.
+      lastActiveDate: state ? state.last_active_date : null,
       xpTotal: state ? state.xp_total : 0,
       soulsBalance: state ? state.souls_balance : 0,
       isAdmin: !!adminRow,
