@@ -1956,11 +1956,12 @@ module.exports = async function handler(req, res) {
   if (req.method === 'GET' && process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`) {
     try {
       const slot = req.headers['x-vercel-cron-schedule'] === '0 13 * * *' ? 'malam' : 'pagi';
-      const nudgeStats = await runDailyNudge(slot);
-      console.log('Merlin daily nudge:', JSON.stringify(nudgeStats));
       // Streak Relight's lapse sweep + its two pushes ride the same cron —
-      // no new Vercel function (see lib/streak-relight.js). Its own failure
-      // is logged, never allowed to fail the nudge run that already ran.
+      // no new Vercel function (see lib/streak-relight.js). It runs FIRST:
+      // a user gets at most one of these pushes a day, the streak's own
+      // notice outranks Merlin's nudge, and the nudge reads the stamps this
+      // sweep writes (Rheza, 2026-09-13). Its own failure is logged, never
+      // allowed to stop the nudge run.
       let streakStats = null;
       try {
         streakStats = await runStreakLapseSweep();
@@ -1968,6 +1969,8 @@ module.exports = async function handler(req, res) {
       } catch (err) {
         console.error('Streak lapse sweep failed:', err);
       }
+      const nudgeStats = await runDailyNudge(slot);
+      console.log('Merlin daily nudge:', JSON.stringify(nudgeStats));
       // Masa Privilege alpha (lib/privilege-expiry.js): status flips and the
       // two notices. Same isolation — its failure never fails the run.
       let privilegeStats = null;
