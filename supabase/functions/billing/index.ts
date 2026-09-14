@@ -252,10 +252,10 @@ function toIso(value: string | undefined): string | null {
  *
  * The one-live-row-per-user index counts status, not date, so a row that
  * still says 'active' past its expires_at blocks the renewal insert — that
- * row is retired first (the sweep sql/mass-comp-mp-and-500-souls.sql:155
- * describes and leaves commented out). A live row from another source (a
- * comp) is taken over rather than duplicated: active-or-not is the only
- * question this table answers.
+ * row is retired first (the update just below: an 'active' or 'grace' row
+ * whose expires_at has already passed becomes 'expired'). A live row from
+ * another source (a comp) is taken over rather than duplicated: active-or-not
+ * is the only question this table answers.
  */
 async function setPrivilege(
   wpUserId: number,
