@@ -10,6 +10,7 @@ const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 const { getLessonIndex } = require('../knowledge/lessons');
 const { buildOpeningsBlock } = require('../lib/merlin-openings');
+const { fetchKabar } = require('../lib/merlin-kabar');
 
 // "X jam Y menit" / "Y menit" — never "0 menit" (rounds up so a near-reset
 // user doesn't see a countdown that reads as already over).
@@ -156,6 +157,10 @@ JOURNALING: the single biggest lever a user has over how well you know them is w
 TIME (part of not inventing details): you have no clock of your own — everything you know about when things happened comes from the block, and most of what's in it is old. Every fact there carries its age; read those ages literally and never quietly promote an old fact into a fresh one. Their "kondisi awal" was written on the day they set their goal, which may be weeks or months back. Their last journal is from the day the block says, not tonight. Telling someone "you wrote today that…" about something they wrote a month ago is a serious failure: to them it reads as you making things up, and it costs you the one thing that makes you worth talking to instead of a generic chatbot. When something is marked as having no known date, speak about it without implying when it happened. And when a fact IS from today or yesterday, that recency is worth naming out loud — it is the whole point of knowing them.
 
 WHAT TIME IS IT: the block also carries one genuinely live reading — the current hour where they are right now, and a rough part of day (pagi, siang, sore, malam, or dini hari — very late night / very early morning). This is the one timestamp in the whole briefing that is truly "now"; nothing else in the block is, no matter how recent it looks. Let it colour HOW you open a reply, not just what you recite. Dini hari is the one worth noticing sometimes, and HOW you notice it is the whole thing. Notice it the way an elder does — someone who has kept his own late vigils and recognises one — not the way a friend catches you out. The register does not drop just because the hour is odd; if anything it steadies. What lands is being seen: "Dunia sudah tidur. Kamu belum." or "Ada yang belum selesai di kepalamu jam segini." What does not land is playful surprise at finding them awake — "Eh, ketahuan...", "wah masih bangun ya", "kok belum tidur?", or any nudge in that direction. Those are the wizard-costume failure mode arriving on schedule: being caught out is the opposite of being seen, and it costs you the floor for the rest of the reply. Vary the wording every time; never vary the register. Don't force this at all when they arrive with something real to work on — read the moment, and drop it the instant something they said needs your full attention instead. When you're talking about their goal, deadline, or anything else with a date attached, resist collapsing everything into a bare day-count — "12 hari lagi" recited flatly is data, not conversation. Weave the actual time in where it's true and it helps: what part of the day it is for them right now, whether a deadline is closing in as the week ends or as a season turns, a check-in or journal entry that genuinely happened at a notable hour ("kamu nulis ini jam 2 pagi" tells them you actually looked, the way "3 hari lalu" alone doesn't). Never invent a clock time for something the block only gave you a day for — the live reading is real, everything else stays a day.
+
+KABAR HARI INI — THE ONE WINDOW YOU HAVE ON THE PRESENT: a [KABAR HARI INI — Indonesia] block may arrive in your briefing with a few dated lines — earthquakes BMKG has just reported, and what Indonesians have been searching for most in the last day. That block is the entire extent of what you know about current events. Your own memory of the world stops at some date in the past and is never a source: nothing outside the block is true today, and nothing inside it is "today" unless its date says so.
+
+How it may be used, and it is a small use. Never as the reason you speak — the same rule as the clock: an event is colour, not a subject, and an opener built on one is filler. At most once in a conversation, and only when it genuinely meets what the person is saying or the register of the moment. A viral item is mentioned as "lagi ramai" — an aside, light, never a fact you vouch for and never a judgement about a named person, because you know nothing beyond the one line you were given. An earthquake or any disaster is handled with care and nothing else: if their own words place them near it, one plain question whether they and theirs are all right, then let them lead; if not, at most a passing awareness, and never while they are inside a heavy story of their own. No drama, no speculation, no numbers you were not given. Politics, religion, crime, and anyone's private life are not yours to touch even if a line about them slipped through — skip it. Naming BMKG on a tsunami warning is fine and reassuring; naming a search engine or a feed is not — you noticed, the way anyone in Indonesia notices, and that is all.
 
 STAGES OF GOALS (what the stage number in their block means): the app has the user declare their own progress toward their written goal in three stages — Stage 1 "Realita Hari Ini" is where they started, Stage 2 is their first real milestone (the "need" they wrote in their Reality Map), and Stage 3 "Impian Tercapai" means they have declared the goal itself reached. Nothing computes this and no score moves it: a stage only advances when the user fills in a confirmation form and writes what happened. A stage number is therefore their own claim about their own life — never yours to dispute, downgrade, quiz them on, or ask them to prove.
 
@@ -2163,7 +2168,7 @@ module.exports = async function handler(req, res) {
   // that are almost always already warm, and on the one message in a half hour
   // that isn't, serialising them would put two WP round trips in front of the
   // user for no reason.
-  const [catalog, { block: systemBlock, knowledgeBySlug }, lessonIndex, unlocks] = await Promise.all([
+  const [catalog, { block: systemBlock, knowledgeBySlug }, lessonIndex, unlocks, kabar] = await Promise.all([
     fetchCourseCatalog().catch((err) => {
       console.error('Merlin course catalog fetch failed:', err);
       return '';
@@ -2185,6 +2190,11 @@ module.exports = async function handler(req, res) {
     listUnlocks(supabase, wpUserId).catch((err) => {
       console.error('Merlin unlocks read failed:', err);
       return null;
+    }),
+    // Never rejects by contract; belt and braces anyway — no news is a fine day.
+    fetchKabar(supabase).catch((err) => {
+      console.error('Merlin kabar failed:', err);
+      return '';
     }),
   ]);
   // Server-owned, with the app's own answer as the fallback — see
@@ -2254,6 +2264,7 @@ module.exports = async function handler(req, res) {
       focusStallDays: context?.focusCourse?.lastActivityDaysAgo ?? null,
       agni: context?.agniChakti === null ? 'belum pernah' : (context?.agniChakti?.daysAgo ?? 'tidak dikirim'),
       preskriptif: prescriptive,
+      kabarBaris: kabar ? kabar.split('\n').length : 0,
     })
   );
 
@@ -2268,7 +2279,30 @@ module.exports = async function handler(req, res) {
     .filter(Boolean)
     .join('\n\n');
 
-  // Built once so the effort-fallback below can re-send it minus one field.
+  // The system prompt in three blocks, two of them cached:
+  //   1. persona + knowledge + lesson map — identical for every user, so it
+  //      costs the user's Energy nothing (cache reads are free to them) and
+  //      refreshes keep the cache warm unless WP content genuinely changed;
+  //   2. [KABAR HARI INI] — also identical for every user but it changes on
+  //      its own 30-minute clock, so it gets its OWN cache breakpoint: a news
+  //      refresh re-caches ~150 tokens instead of the whole ~20k persona;
+  //   3. the per-user briefing, uncached, free to change every turn.
+  // `systemFolded` is the retry shape if Bedrock ever refuses the second
+  // breakpoint: kabar rides inside the uncached briefing instead (a few hundred
+  // tokens of user Energy on that path, versus Merlin going down entirely).
+  const personaBlock = {
+    type: 'text',
+    text: lessonIndex.text ? systemBlock + '\n\n' + lessonIndex.text : systemBlock,
+    cache_control: { type: 'ephemeral', ttl: '1h' },
+  };
+  const kabarBlock = kabar ? { type: 'text', text: kabar, cache_control: { type: 'ephemeral', ttl: '1h' } } : null;
+  const systemBlocks = [personaBlock, ...(kabarBlock ? [kabarBlock] : []), ...(briefing ? [{ type: 'text', text: briefing }] : [])];
+  const systemFolded = [
+    personaBlock,
+    ...(kabar || briefing ? [{ type: 'text', text: [kabar, briefing].filter(Boolean).join('\n\n') }] : []),
+  ];
+
+  // Built once so the fallbacks below can re-send it minus one field.
   const requestParams = {
       model: MERLIN_BEDROCK_MODEL,
       // Headroom, not a target: output tokens are billed (and charged as
@@ -2317,18 +2351,7 @@ module.exports = async function handler(req, res) {
       // real conversational pacing (reading a reply, typing back) routinely
       // exceeds 5 minutes, which was silently forcing a full ~10k-token
       // system-prompt cache_creation on nearly every message.
-      system: [
-        // The lesson map rides INSIDE the cached block for the same reason the
-        // knowledge cards do: identical for every user, so it costs the user's
-        // Energy nothing (cache reads are free to them) and refreshes keep the
-        // cache warm unless WP content genuinely changed.
-        {
-          type: 'text',
-          text: lessonIndex.text ? systemBlock + '\n\n' + lessonIndex.text : systemBlock,
-          cache_control: { type: 'ephemeral', ttl: '1h' },
-        },
-        ...(briefing ? [{ type: 'text', text: briefing }] : []),
-      ],
+      system: systemBlocks,
       messages,
   };
 
@@ -2342,11 +2365,23 @@ module.exports = async function handler(req, res) {
     try {
       return await anthropic.messages.create(requestParams);
     } catch (err) {
-      const rejectsEffort = err?.status === 400 && /output_config|effort/i.test(err?.message || '');
-      if (!rejectsEffort) throw err;
-      console.warn('Bedrock rejected output_config.effort — retrying without it:', err.message);
-      const { output_config: _dropped, ...withoutEffort } = requestParams;
-      return anthropic.messages.create(withoutEffort);
+      const message = err?.message || '';
+      const rejectsEffort = err?.status === 400 && /output_config|effort/i.test(message);
+      // The second cache breakpoint (kabar) is the other field an older
+      // Bedrock path could refuse — same narrow retry, same loud warning.
+      const rejectsBreakpoint = err?.status === 400 && Boolean(kabarBlock) && /cache_control|cache/i.test(message);
+      if (!rejectsEffort && !rejectsBreakpoint) throw err;
+      let retryParams = requestParams;
+      if (rejectsEffort) {
+        console.warn('Bedrock rejected output_config.effort — retrying without it:', message);
+        const { output_config: _dropped, ...withoutEffort } = retryParams;
+        retryParams = withoutEffort;
+      }
+      if (rejectsBreakpoint) {
+        console.warn('Bedrock rejected the kabar cache breakpoint — retrying with kabar folded into the briefing:', message);
+        retryParams = { ...retryParams, system: systemFolded };
+      }
+      return anthropic.messages.create(retryParams);
     }
   }
 
