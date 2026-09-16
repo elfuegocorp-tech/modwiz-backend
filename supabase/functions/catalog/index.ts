@@ -59,6 +59,102 @@ async function passThrough(path: string): Promise<Response> {
   return json(await res.json());
 }
 
+// --- Top 5 courses ----------------------------------------------------------
+//
+// The Courses tab's "Top 5 Course Bulan Ini" used to be a hand-typed keyword
+// list in the app, copied from what Rheza sets by hand on the website. This
+// ranks it from LifterLMS instead (Rheza, 2026-09-17):
+//
+//   1. Only SELLABLE courses: at least one access plan that isn't hidden. A
+//      course given away as a bonus must not climb the list on gifts.
+//   2. Ranked by enrolments started in the last 30 days (rolling, not the
+//      calendar month, so the 1st of the month isn't an empty list).
+//   3. Ties, including the all-zero quiet month, broken by all-time
+//      enrolments (X-WP-Total), then by newest course.
+//
+// Enrolments count every way in (website checkout, Luna, a manual enrol): each
+// is a real person who got access. No revenue weighting, since LifterLMS's
+// REST API has no orders endpoint.
+//
+// The enrolments endpoint has no date filter, so each course is paged newest
+// first until a record is older than the window. That's a few upstream calls
+// per course, so the result is held in memory for 6 hours. Per isolate, which
+// is fine: a cold isolate just recomputes once.
+
+const TOP_WINDOW_DAYS = 30;
+const TOP_CACHE_MS = 6 * 60 * 60 * 1000;
+const TOP_COUNT = 5;
+// Safety stop: 10 pages x 100 = 1,000 enrolments in 30 days for one course.
+const TOP_MAX_PAGES = 10;
+
+let topCache: { at: number; body: unknown } | null = null;
+
+async function llmsGet(path: string): Promise<Response> {
+  const res = await fetch(`${WP_BASE_URL}/wp-json/${path}`, {
+    headers: { Authorization: llmsAuthHeader() },
+  });
+  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  return res;
+}
+
+// LifterLMS returns enrolment dates as MySQL datetimes in the site's timezone
+// (WIB) with no offset. Read them as WIB; accept ISO with an offset too.
+function parseLlmsDate(value: unknown): number {
+  if (typeof value !== 'string' || !value) return NaN;
+  if (/[zZ]|[+-]\d\d:?\d\d$/.test(value)) return Date.parse(value);
+  return Date.parse(`${value.replace(' ', 'T')}+07:00`);
+}
+
+async function countEnrollments(courseId: number, since: number) {
+  let recent = 0;
+  let total = 0;
+  for (let page = 1; page <= TOP_MAX_PAGES; page++) {
+    const res = await llmsGet(
+      `llms/v1/courses/${courseId}/enrollments?orderby=date_created&order=desc&per_page=100&page=${page}`,
+    );
+    if (page === 1) total = Number(res.headers.get('X-WP-Total')) || 0;
+    const rows = (await res.json()) as { date_created?: string }[];
+    let reachedOld = false;
+    for (const row of rows) {
+      if (parseLlmsDate(row.date_created) >= since) recent++;
+      else {
+        reachedOld = true;
+        break;
+      }
+    }
+    if (reachedOld || rows.length < 100) break;
+  }
+  return { recent, total };
+}
+
+async function computeTopCourses() {
+  const [coursesRes, plansRes] = await Promise.all([
+    llmsGet('llms/v1/courses?per_page=100&orderby=date_created&order=desc'),
+    llmsGet('llms/v1/access-plans?per_page=100'),
+  ]);
+  const courses = (await coursesRes.json()) as { id: number }[];
+  const plans = (await plansRes.json()) as { post_id: number; visibility: string }[];
+
+  const sellable = new Set(
+    plans.filter((plan) => plan.visibility !== 'hidden').map((plan) => plan.post_id),
+  );
+  const since = Date.now() - TOP_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+  // `courses` is newest first, so its index is the last tie-breaker.
+  const ranked = await Promise.all(
+    courses
+      .filter((course) => sellable.has(course.id))
+      .map(async (course, newest) => ({ id: course.id, newest, ...(await countEnrollments(course.id, since)) })),
+  );
+  ranked.sort((x, y) => y.recent - x.recent || y.total - x.total || x.newest - y.newest);
+
+  return {
+    windowDays: TOP_WINDOW_DAYS,
+    generatedAt: new Date().toISOString(),
+    courses: ranked.slice(0, TOP_COUNT).map(({ id, recent, total }) => ({ id, recent, total })),
+  };
+}
+
 // Path segments are interpolated into an upstream URL, so anything that isn't
 // a plain positive integer is refused before it gets there. Guards against
 // both traversal (`../`) and a caller smuggling in its own query string.
@@ -90,6 +186,21 @@ Deno.serve(
         if (b === 'content') return passThrough(`llms/v1/courses/${courseId}/content`);
         if (!b) return passThrough(`llms/v1/courses/${courseId}`);
         return json({ error: 'Not found.' }, 404);
+      }
+
+      case 'top-courses': {
+        if (a) return json({ error: 'Not found.' }, 404);
+        if (topCache && Date.now() - topCache.at < TOP_CACHE_MS) return json(topCache.body);
+        try {
+          const body = await computeTopCourses();
+          topCache = { at: Date.now(), body };
+          return json(body);
+        } catch (err) {
+          console.error('[catalog] top-courses failed:', err);
+          // A stale list beats no list; the app falls back on its own otherwise.
+          if (topCache) return json(topCache.body);
+          return json({ error: 'Upstream request failed.' }, 502);
+        }
       }
 
       case 'sections': {
