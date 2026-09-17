@@ -2238,6 +2238,14 @@ module.exports = async function handler(req, res) {
   // (400, 429) stays a plain JSON status either way — the event stream only
   // opens once the request is about to reach the model.
   const wantsStream = req.body && req.body.stream === true;
+  // Test-only knob for measuring thinking depth against real replies from the
+  // outside (scratchpad scripts): 'low' | 'medium' | 'high' pick an effort,
+  // 'none' switches thinking off for this one request. The app never sends
+  // it; an authenticated user who did could only make their own reply
+  // cheaper. Logged in the timing line so a measured run is attributable.
+  const effortOverride = ['low', 'medium', 'high', 'none'].includes(req.body && req.body.effortOverride)
+    ? req.body.effortOverride
+    : null;
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -2496,12 +2504,12 @@ module.exports = async function handler(req, res) {
       // means a second ~12.3k-token cache to keep warm), and without putting
       // the weakest model on the first impression, which is exactly where
       // this product needs to be at its most impressive.
-      thinking: { type: 'adaptive' },
+      ...(effortOverride === 'none' ? {} : { thinking: { type: 'adaptive' } }),
       // Sonnet 4.6 defaults to `high` when effort is unset, which is the
       // expensive end of a scale the user pays for in Energy. `medium` is the
       // balance point for conversational coaching; the knob is low/medium/
       // high/max if replies ever read as under- or over-thought.
-      output_config: { effort: 'medium' },
+      ...(effortOverride === 'none' ? {} : { output_config: { effort: effortOverride || 'medium' } }),
       // Two blocks on purpose. cache_control marks the end of the cacheable
       // prefix, so the long static persona stays cached across messages
       // while the per-user briefing after it is free to change every turn —
@@ -2652,6 +2660,7 @@ module.exports = async function handler(req, res) {
           .reduce((sum, block) => sum + (block.thinking || '').length, 0),
         cacheHit: (usage.cache_read_input_tokens || 0) > 0,
         stop: response.stop_reason,
+        effortOverride,
       })
     );
     const energyAfter = await consumeEnergy(wpUserId, tokensToEnergy(totalTokens)).catch((err) => {
