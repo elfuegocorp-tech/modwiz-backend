@@ -2505,11 +2505,17 @@ module.exports = async function handler(req, res) {
       // the weakest model on the first impression, which is exactly where
       // this product needs to be at its most impressive.
       ...(effortOverride === 'none' ? {} : { thinking: { type: 'adaptive' } }),
-      // Sonnet 4.6 defaults to `high` when effort is unset, which is the
-      // expensive end of a scale the user pays for in Energy. `medium` is the
-      // balance point for conversational coaching; the knob is low/medium/
-      // high/max if replies ever read as under- or over-thought.
-      ...(effortOverride === 'none' ? {} : { output_config: { effort: effortOverride || 'medium' } }),
+      // `low`, measured (2026-09-18, rich test profile, streamed, first word /
+      // done): "Merl" 68.7 s / 73 s at medium vs 4.3 s / 6.4 s at low; "aku
+      // capek" 5.8 s vs 3.8 s; "buatkan diet plan" 100 s / 109 s vs 14 s /
+      // 37 s — with the low plan longer and at least as specific (same
+      // people, spreadsheet, deadline, dinner hour). The paragraph above
+      // assumed adaptive thinking would spend almost nothing on a trivial
+      // message; at medium it spent over a minute on four letters. Users
+      // pay for that in waiting AND in Energy (thinking is output tokens).
+      // The scale is low/medium/high/max; `effortOverride` in the request
+      // body is the measuring tool, see the timing line in the usage log.
+      ...(effortOverride === 'none' ? {} : { output_config: { effort: effortOverride || 'low' } }),
       // Two blocks on purpose. cache_control marks the end of the cacheable
       // prefix, so the long static persona stays cached across messages
       // while the per-user briefing after it is free to change every turn —
