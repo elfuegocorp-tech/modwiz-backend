@@ -2207,7 +2207,12 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Wall-clock per stage, logged with the token usage below. Users reported
+  // slow replies even for simple messages; without this line nobody can tell
+  // "the model thought for 40 s" from "WordPress took 6 s to verify a login".
+  const tStart = Date.now();
   const wpUserId = await verifyWpUser(authHeader).catch(() => null);
+  const tAuth = Date.now();
   if (!wpUserId) {
     res.status(401).json({ error: 'Could not verify your Modwiz Mastery login' });
     return;
@@ -2335,27 +2340,32 @@ module.exports = async function handler(req, res) {
       return '';
     }),
   ]);
-  // Server-owned, with the app's own answer as the fallback — see
-  // resolveSkillEntitlements for why the client's word isn't good enough here
-  // when the cooldowns' is.
-  const skills = await resolveSkillEntitlements(wpUserId, sentSkills);
-
-  // The skill gate comes before the two cooldown rules, because it outranks
-  // them: a locked skill has no jatah to be recovered or spent. A cooldown
-  // block for a skill they haven't unlocked is dropped entirely rather than
-  // sent alongside — telling Merlin both "you can't do this" and "your turn
-  // has come around" in the same briefing is an argument, not a rule.
-  // Best-effort: a ledger read must never block the chat. null → nothing
-  // claimed about meditation either way.
-  const sessions = await fetchTodaySessions(wpUserId, context && context.today).catch((err) => {
-    console.error('Merlin today-sessions read failed, skipping:', err);
-    return null;
-  });
-  // Same contract: a ledger read never blocks the chat.
-  const jejak = await fetchJejak(wpUserId).catch((err) => {
-    console.error('Merlin streak/XP read failed, skipping:', err);
-    return null;
-  });
+  // Three more reads that need nothing from each other or from the batch
+  // above, so they run side by side too — each was a Supabase round trip
+  // sitting in front of the model call one after another.
+  const [skills, sessions, jejak] = await Promise.all([
+    // Server-owned, with the app's own answer as the fallback — see
+    // resolveSkillEntitlements for why the client's word isn't good enough
+    // here when the cooldowns' is.
+    resolveSkillEntitlements(wpUserId, sentSkills),
+    // The skill gate comes before the two cooldown rules, because it
+    // outranks them: a locked skill has no jatah to be recovered or spent. A
+    // cooldown block for a skill they haven't unlocked is dropped entirely
+    // rather than sent alongside — telling Merlin both "you can't do this"
+    // and "your turn has come around" in the same briefing is an argument,
+    // not a rule.
+    // Best-effort: a ledger read must never block the chat. null → nothing
+    // claimed about meditation either way.
+    fetchTodaySessions(wpUserId, context && context.today).catch((err) => {
+      console.error('Merlin today-sessions read failed, skipping:', err);
+      return null;
+    }),
+    // Same contract: a ledger read never blocks the chat.
+    fetchJejak(wpUserId).catch((err) => {
+      console.error('Merlin streak/XP read failed, skipping:', err);
+      return null;
+    }),
+  ]);
 
   // The librarian's desk notes — what is provably open for THIS user right
   // now. Logged whole so Vercel's logs answer the question screenshots can't:
@@ -2529,7 +2539,9 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    const tModelStart = Date.now();
     const response = await createMerlinReply();
+    const tModelEnd = Date.now();
 
     // Every text block, not just the first. Today the model returns exactly
     // one, so this changes nothing — but the moment thinking is switched on
@@ -2599,7 +2611,24 @@ module.exports = async function handler(req, res) {
       'energyCost:',
       tokensToEnergy(totalTokens),
       'cacheWriteAbsorbed:',
-      usage.cache_creation_input_tokens || 0
+      usage.cache_creation_input_tokens || 0,
+      // The split the slowness complaint needs. output_tokens covers thinking
+      // AND the visible reply, so replyChars/thinkingChars (the summarised
+      // thinking Bedrock returns) show where those tokens went; the ms
+      // fields show whether the wait was ours (auth, prep) or the model's.
+      'timing:',
+      JSON.stringify({
+        authMs: tAuth - tStart,
+        prepMs: tModelStart - tAuth,
+        modelMs: tModelEnd - tModelStart,
+        totalMs: tModelEnd - tStart,
+        replyChars: replyText.length,
+        thinkingChars: response.content
+          .filter((block) => block.type === 'thinking')
+          .reduce((sum, block) => sum + (block.thinking || '').length, 0),
+        cacheHit: (usage.cache_read_input_tokens || 0) > 0,
+        stop: response.stop_reason,
+      })
     );
     const energyAfter = await consumeEnergy(wpUserId, tokensToEnergy(totalTokens)).catch((err) => {
       console.error('Merlin energy deduct failed:', err);
