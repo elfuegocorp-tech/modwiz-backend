@@ -2232,6 +2232,12 @@ module.exports = async function handler(req, res) {
   }
 
   const { messages, context, ramalan, garisTangan, skills: sentSkills, turnId, pushToken } = req.body || {};
+  // `stream: true` is the new app asking for the reply as it is written
+  // (Server-Sent Events); an older bundle never sends it and keeps getting
+  // the one JSON object it was built for. Every error before the model call
+  // (400, 429) stays a plain JSON status either way — the event stream only
+  // opens once the request is about to reach the model.
+  const wantsStream = req.body && req.body.stream === true;
   if (!isValidMessages(messages)) {
     res.status(400).json({ error: 'messages must be a non-empty array of { role, content }' });
     return;
@@ -2514,9 +2520,21 @@ module.exports = async function handler(req, res) {
   // take Merlin down completely, so that single narrow failure is retried once
   // without the field rather than left for users to discover. Loud on purpose:
   // effort silently reverting to Sonnet's `high` default is a real cost change.
-  async function createMerlinReply() {
+  //
+  // With onText set, the same call streams: onText gets each visible text
+  // delta as the model writes it, and the resolved value is still the whole
+  // Message (usage, stop_reason, every block) — so nothing below the call
+  // changes between the two paths. The 400 fallbacks are unaffected by
+  // streaming: a rejected parameter fails the request before any content.
+  async function createMerlinReply(onText) {
+    const run = async (params) => {
+      if (!onText) return anthropic.messages.create(params);
+      const stream = anthropic.messages.stream(params);
+      stream.on('text', onText);
+      return stream.finalMessage();
+    };
     try {
-      return await anthropic.messages.create(requestParams);
+      return await run(requestParams);
     } catch (err) {
       const message = err?.message || '';
       const rejectsEffort = err?.status === 400 && /output_config|effort/i.test(message);
@@ -2534,13 +2552,19 @@ module.exports = async function handler(req, res) {
         console.warn('Bedrock rejected the kabar cache breakpoint — retrying with kabar folded into the briefing:', message);
         retryParams = { ...retryParams, system: systemFolded };
       }
-      return anthropic.messages.create(retryParams);
+      return run(retryParams);
     }
   }
 
+  // Opened only now, after every check that can still answer with a status
+  // code. From here on a streaming request's failures travel as an `error`
+  // event on the open stream (see the catch below).
+  const sse = wantsStream ? openEventStream(req, res) : null;
+  const streamedText = sse ? markerSafeStreamer((text) => sse.send('delta', { text })) : null;
+
   try {
     const tModelStart = Date.now();
-    const response = await createMerlinReply();
+    const response = await createMerlinReply(streamedText);
     const tModelEnd = Date.now();
 
     // Every text block, not just the first. Today the model returns exactly
@@ -2673,12 +2697,100 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    res.status(200).json(payload);
+    if (sse) {
+      // The `done` payload is byte-for-byte what the JSON path returns, and
+      // it carries the CLEAN reply: the app swaps the streamed text for it,
+      // which is what makes the two paths end in the same message.
+      sse.send('done', payload);
+      sse.end();
+    } else {
+      res.status(200).json(payload);
+    }
   } catch (err) {
     console.error('Merlin/Anthropic error:', err);
-    res.status(502).json({ error: 'Merlin is unreachable right now. Please try again in a moment.' });
+    const error = 'Merlin is unreachable right now. Please try again in a moment.';
+    if (sse) {
+      sse.send('error', { error });
+      sse.end();
+    } else {
+      res.status(502).json({ error });
+    }
   }
 };
+
+// --- Streaming reply ---------------------------------------------------------
+//
+// Server-Sent Events over the same POST, so the app can print Merlin's words
+// as they are written instead of staring at the orb for the whole 30–100 s a
+// long reply takes. Events: `delta` {text} for visible text as it arrives,
+// `done` with the exact payload the JSON path returns, `error` {error} if the
+// model call fails after the stream opened. A comment line goes out every
+// 15 s as a heartbeat, because the thinking phase produces no text for tens
+// of seconds and an idle connection is exactly what proxies and mobile
+// radios like to drop.
+//
+// Vercel streams Node function responses as they are written (enabled by
+// default for every Node.js function since 2024); `X-Accel-Buffering: no`
+// is for any proxy in between that still buffers.
+//
+// A client that goes away mid-reply does NOT stop the reply: the writes just
+// turn into no-ops, the model finishes, and the finished payload is parked in
+// merlin_pending_replies like any other — which is the kill-the-app safety
+// net working as designed, not a special case.
+const SSE_HEARTBEAT_MS = 15000;
+
+function openEventStream(req, res) {
+  let closed = false;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': ping\n\n');
+  }, SSE_HEARTBEAT_MS);
+  const finish = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+  };
+  res.on('close', finish);
+  res.on('error', finish);
+  return {
+    send(event, data) {
+      if (closed) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    },
+    end() {
+      if (closed) return;
+      finish();
+      res.end();
+    },
+  };
+}
+
+// Merlin's markers ([[CARD:...]], [[ACTION:...]], [[INGAT: ...]] and the rest)
+// are stripped from the finished reply by extractMarkers, but a stream shows
+// text BEFORE that happens — so this holds back anything from an unclosed
+// `[[` (or a trailing `[` that may be about to become one) until it closes,
+// and never emits a closed marker at all. The app only ever sees prose; the
+// `done` payload's clean reply is authoritative for what stays on screen.
+function markerSafeStreamer(emit) {
+  let pending = '';
+  return (delta) => {
+    pending += delta;
+    // Drop every complete marker outright.
+    pending = pending.replace(/\[\[[^\]]*\]\]/g, '');
+    // Hold back from the last unclosed `[[`, or a lone trailing `[`.
+    let cut = pending.lastIndexOf('[[');
+    if (cut === -1 && pending.endsWith('[')) cut = pending.length - 1;
+    const safe = cut === -1 ? pending : pending.slice(0, cut);
+    pending = cut === -1 ? '' : pending.slice(cut);
+    if (safe) emit(safe);
+  };
+}
 
 // Exposed for tests only (same pattern as lib/merlin-nudge.js's composeNudge)
 // — Vercel calls the handler above, never this.
