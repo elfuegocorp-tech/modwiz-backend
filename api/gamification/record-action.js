@@ -12,6 +12,7 @@ const { supabase } = require('../../lib/supabase');
 const { courseSoulsReward } = require('../../lib/course-rewards');
 const { grantSouls } = require('../../lib/souls');
 const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
+const { maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
 
 function requireLocalDate(localDate) {
   if (typeof localDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
@@ -102,12 +103,31 @@ module.exports = async function handler(req, res) {
       return;
     }
     try {
-      // Hiding also stamps WHEN — the "week you hide is a week you sit out"
-      // rule (lib/leaderboard.js) needs the moment, not just the flag, so a
-      // mid-week un-hide can't un-happen the hide. Un-hiding deliberately
-      // leaves the stamp alone: "last time you hid" stays true.
+      // Settle last week's Souls BEFORE the switch moves. The grant normally
+      // runs on the first /state hit after Monday 00:00 WIB, but a flip
+      // posted before anyone has opened the app would otherwise be the first
+      // thing the week sees — and the grant would then read the switch in
+      // its new position. Idempotent and locked by the leaderboard_rewards
+      // row, so on every other call this costs one primary-key check.
+      await maybeGrantWeeklyRewards();
+      // Both flips stamp WHEN. The "week you hide is a week you sit out"
+      // rule needs the hide moment, and the "a finished week is frozen" rule
+      // (lib/leaderboard.js wasHiddenAt) needs the un-hide moment too, so the
+      // server can tell whether someone was hidden when last week ended no
+      // matter what the switch says today. Neither flip clears the other
+      // stamp. A flip that doesn't change the flag (double tap, retry) stamps
+      // nothing — moving an un-hide stamp later could wrongly read as
+      // "still hidden" at a week's end.
+      const { data: current, error: currentError } = await supabase
+        .from('gamification_state')
+        .select('leaderboard_hidden')
+        .eq('wp_user_id', wpUserId)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      const wasHidden = current?.leaderboard_hidden === true;
       const update = { wp_user_id: wpUserId, leaderboard_hidden: hidden, updated_at: new Date().toISOString() };
-      if (hidden) update.leaderboard_hidden_at = update.updated_at;
+      if (hidden && !wasHidden) update.leaderboard_hidden_at = update.updated_at;
+      if (!hidden && wasHidden) update.leaderboard_unhidden_at = update.updated_at;
       const { error } = await supabase
         .from('gamification_state')
         .upsert(update, { onConflict: 'wp_user_id' });
