@@ -9,7 +9,7 @@ const { listSkillEntitlements, listUnlocks } = require('../lib/store-products');
 const { loadKnowledge, cardSection } = require('../knowledge');
 const { fetchRemoteCourseCards } = require('../knowledge/remote-courses');
 const { getLessonIndex } = require('../knowledge/lessons');
-const { buildOpeningsBlock } = require('../lib/merlin-openings');
+const { buildOpeningsBlock, openRituals } = require('../lib/merlin-openings');
 const { fetchKabar } = require('../lib/merlin-kabar');
 const { mostRecentMondayWibUtc } = require('../lib/leaderboard');
 
@@ -546,7 +546,15 @@ async function fetchCourseCatalog() {
 // Deliberately not carried for an 'unavailable' course — those two cards are
 // placeholders whose bullets literally read "belum bisa dipastikan sampai
 // materinya jadi", which is a note to Merlin, never a thing to show a user.
-function resolveCard(cardRef, ownedCourseIds, knowledgeBySlug, lessonIndex) {
+// `openRitualKeys` is openRituals()' answer for this turn: the set of rituals
+// genuinely open right now, or null when the facts are missing. A ritual card
+// outside that set is dropped like an invented slug — the persona may only
+// hand over what the [YANG SEDANG TERBUKA] block lists, and the block computes
+// that set from the same facts, so this is the block's own rule applied to the
+// OUTPUT instead of only to the briefing. Before this, "code decides what is
+// true" covered the list Merlin read but not the card he emitted, and a
+// PRIMING at 22:21 or a COSMIC he had just agreed was done sailed through.
+function resolveCard(cardRef, ownedCourseIds, knowledgeBySlug, lessonIndex, openRitualKeys) {
   if (!cardRef) return null;
 
   // A lesson card deep-links into the player, and the player serves paid
@@ -569,7 +577,10 @@ function resolveCard(cardRef, ownedCourseIds, knowledgeBySlug, lessonIndex) {
 
   if (cardRef.kind === 'RITUAL') {
     const key = cardRef.value.toUpperCase();
-    return VALID_RITUAL_CARDS.has(key) ? { type: 'ritual', key } : null;
+    if (!VALID_RITUAL_CARDS.has(key)) return null;
+    // Null = no claim (old app, failed ledger read): permissive on purpose.
+    if (openRitualKeys && !openRitualKeys.has(key)) return null;
+    return { type: 'ritual', key };
   }
 
   if (cardRef.kind === 'COURSE') {
@@ -2619,12 +2630,19 @@ module.exports = async function handler(req, res) {
         .map((course) => course.id)
         .filter((id) => typeof id === 'number')
     );
-    const card = resolveCard(cardRef, ownedCourseIds, knowledgeBySlug, lessonIndex);
+    const openRitualKeys = openRituals(context, sessions);
+    const card = resolveCard(cardRef, ownedCourseIds, knowledgeBySlug, lessonIndex, openRitualKeys);
     // A marker that named something real but unrecognised is worth seeing: it
     // means the persona is offering a card the catalog can't back, which is a
-    // prompt problem, not a user-facing one. The user just gets no card.
+    // prompt problem, not a user-facing one. The user just gets no card. For a
+    // ritual, the open set rides along so the log tells "wrong ritual for the
+    // hour / already done" apart from "unknown key".
     if (cardRef && !card) {
-      console.warn('Merlin card marker did not resolve:', wpUserId, JSON.stringify(cardRef));
+      console.warn(
+        'Merlin card marker did not resolve:',
+        wpUserId,
+        JSON.stringify({ ...cardRef, openRituals: openRitualKeys ? [...openRitualKeys] : null, jam: context?.nowTime ?? null })
+      );
     }
 
     // Loud on purpose: truncation is invisible from the app's side (the reply
