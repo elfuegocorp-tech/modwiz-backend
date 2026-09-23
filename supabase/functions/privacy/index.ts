@@ -12,6 +12,7 @@
 // Called by modwiz-app/services/privacy.ts.
 
 import { json, preflight, supabase, withAuth, type WpUser } from '../_shared/http.ts';
+import { maybeGrantBraceletTrial } from '../_shared/bracelet-trial.ts';
 
 // Bump in lockstep with AI_CONSENT_VERSION in
 // modwiz-app/app/onboarding/ai-consent.tsx. Stored per user so that when the
@@ -35,6 +36,12 @@ async function ensureProfile(wpUserId: number) {
 
 async function readState(user: WpUser) {
   await ensureProfile(user.id);
+
+  // AWESOME BRACELET → one free month (sql/bracelet-privilege-trial.sql).
+  // Runs BEFORE the reads below so the very open that earns the month also
+  // reports it. Throttled inside to one LifterLMS call per user per half day,
+  // and it never throws — a WordPress blip must not 500 this read.
+  await maybeGrantBraceletTrial(user.id);
 
   const [
     { data: profile, error: profileError },

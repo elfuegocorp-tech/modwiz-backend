@@ -36,6 +36,7 @@
 //   ANDROID_PACKAGE_NAME              optional, defaults to com.modwizmastery.app
 
 import { json, preflight, supabase, verifyWpUser, WP_BASE_URL, type WpUser } from '../_shared/http.ts';
+import { maybeGrantBraceletTrial } from '../_shared/bracelet-trial.ts';
 
 const PACKAGE_NAME = Deno.env.get('ANDROID_PACKAGE_NAME') ?? 'com.modwizmastery.app';
 const PLAY_API = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications';
@@ -64,6 +65,10 @@ function kindOf(productId: string): Kind | null {
   if (productId.startsWith('modwiz_privilege')) return 'privilege';
   return null;
 }
+
+// Play product ids cannot carry hyphens, so this is courseProductId('awesome-bracelet-program')
+// as modwiz-app/services/billing.ts spells it.
+const BRACELET_PRODUCT_ID = 'course_awesome_bracelet_program';
 
 function soulsIn(productId: string): number | null {
   const n = Number(productId.slice('souls_'.length));
@@ -458,6 +463,16 @@ async function handleVerify(req: Request, user: WpUser): Promise<Response> {
     if (kind === 'course') {
       const result = await grantCourse(row);
       details = { courseId: result.courseId, kit: result.kit };
+      // AWESOME BRACELET → one free month of Privilege, right now rather
+      // than on the next app open (sql/bracelet-privilege-trial.sql). The
+      // enrolment above is what earns it; `force` skips the recheck window
+      // because a "not enrolled" stamp from an hour ago is stale by
+      // definition here. Never fails the purchase: the class is granted
+      // already, and the month re-evaluates itself on the next open anyway.
+      if (productId === BRACELET_PRODUCT_ID) {
+        const trial = await maybeGrantBraceletTrial(user.id, { force: true }).catch(() => 'unavailable');
+        details = { ...details, privilegeTrial: trial };
+      }
     } else if (kind === 'souls') {
       const perPack = soulsIn(productId);
       if (!perPack) throw new Error(`Product ${productId} carries no Souls amount`);

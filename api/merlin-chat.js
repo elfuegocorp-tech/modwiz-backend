@@ -2269,7 +2269,7 @@ module.exports = async function handler(req, res) {
   // only covers the gap when the user has explicitly turned it on — see
   // setExtraEnergyEnabled — and isn't itself subject to the weekly ceiling.
   const now = new Date().toISOString();
-  const energyBefore = await getEnergyState(wpUserId).catch((err) => {
+  let energyBefore = await getEnergyState(wpUserId).catch((err) => {
     console.error('Merlin energy read failed, failing open:', err);
     // fail open — don't block chat on our own bug
     return {
@@ -2297,9 +2297,24 @@ module.exports = async function handler(req, res) {
     energyBefore.extraEnergy,
     energyBefore.extraEnergyEnabled ? '(on)' : '(off)'
   );
+  const affordable = (state) => {
+    const remaining = Math.max(0, state.weeklyMax - state.weeklyUsed);
+    return (state.energyCurrent >= 1 && remaining >= 1) || (state.extraEnergyEnabled && state.extraEnergy >= 1);
+  };
+  let canAfford = affordable(energyBefore);
+  if (!canAfford) {
+    // One fresh look before refusing — see getEnergyState's freshTier. A
+    // refusal is rare enough that the extra RPC costs nothing in practice,
+    // and it is the only way a Privilege bought seconds ago (Energy Habis
+    // card → Google Play → resend) is honoured on THIS message rather than
+    // after the tier cache expires.
+    const rechecked = await getEnergyState(wpUserId, { freshTier: true }).catch(() => null);
+    if (rechecked) {
+      energyBefore = rechecked;
+      canAfford = affordable(energyBefore);
+    }
+  }
   const weeklyRemaining = Math.max(0, energyBefore.weeklyMax - energyBefore.weeklyUsed);
-  const quotaAvailable = energyBefore.energyCurrent >= 1 && weeklyRemaining >= 1;
-  const canAfford = quotaAvailable || (energyBefore.extraEnergyEnabled && energyBefore.extraEnergy >= 1);
   if (!canAfford) {
     // Whichever cap is actually the bottleneck decides the real wait: if
     // there's still session quota but the weekly ceiling is what's hit, the
