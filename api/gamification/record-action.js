@@ -13,6 +13,8 @@ const { courseSoulsReward } = require('../../lib/course-rewards');
 const { grantSouls } = require('../../lib/souls');
 const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
 const { maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
+const { moderateAvatarForUser, precheckAvatar, MAX_IMAGE_BASE64_CHARS, XP_PATH_RECHECK_MS } = require('../../lib/avatar-moderation');
+const { ReportError, fileReport } = require('../../lib/user-reports');
 
 function requireLocalDate(localDate) {
   if (typeof localDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
@@ -72,14 +74,25 @@ module.exports = async function handler(req, res) {
     const syncFirstName = typeof req.body.firstName === 'string' ? req.body.firstName.trim() : '';
     const syncAvatarUrl = typeof req.body.avatarUrl === 'string' ? req.body.avatarUrl.trim() : '';
     try {
-      if (syncFirstName || syncAvatarUrl) {
-        const row = { wp_user_id: wpUserId, updated_at: new Date().toISOString() };
-        if (syncFirstName) row.first_name = syncFirstName;
-        if (syncAvatarUrl) row.avatar_url = syncAvatarUrl;
+      if (syncFirstName) {
+        const row = { wp_user_id: wpUserId, first_name: syncFirstName, updated_at: new Date().toISOString() };
         const { error } = await supabase.from('gamification_state').upsert(row, { onConflict: 'wp_user_id' });
         if (error) throw error;
       }
-      res.status(200).json({ ok: true });
+      // The photo address is no longer written straight into the cache: it
+      // goes through the check (lib/avatar-moderation.js), which stores it
+      // together with a verdict. This is the call the app makes right after
+      // a photo change and at every login, so it always re-looks (no
+      // maxAgeMs). A failed check is logged and answered as "not decided" —
+      // the name above is already saved, and an undecided photo is hidden.
+      let avatar = { status: null, reason: null };
+      if (syncAvatarUrl) {
+        avatar = await moderateAvatarForUser(wpUserId, syncAvatarUrl).catch((err) => {
+          console.error('gamification/record-action sync_profile avatar check failed:', err);
+          return { status: null, reason: null };
+        });
+      }
+      res.status(200).json({ ok: true, avatarStatus: avatar.status, avatarReason: avatar.reason });
     } catch (err) {
       console.error('gamification/record-action sync_profile error:', err);
       res.status(500).json({ error: 'Could not update your progress right now.' });
@@ -140,6 +153,49 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // Also not an XP action — Edit Profil asking, BEFORE it uploads to
+  // WordPress, whether the picked picture may be a profile photo. A courtesy
+  // to the honest client (a blocked photo is never saved at all); the
+  // enforcement is sync_profile above and the leaderboard's own pass, which
+  // every photo has to get through whatever this answered.
+  if (actionType === 'check_avatar') {
+    const imageBase64 = req.body.imageBase64;
+    if (typeof imageBase64 !== 'string' || imageBase64.length === 0 || imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
+      res.status(400).json({ error: 'imageBase64 is required and must be under the size limit' });
+      return;
+    }
+    try {
+      res.status(200).json(await precheckAvatar(wpUserId, imageBase64));
+    } catch (err) {
+      if (err && err.overCap) {
+        res.status(429).json({ error: 'Kamu sudah terlalu sering mengganti foto hari ini. Coba lagi besok.' });
+        return;
+      }
+      // Anything else (a database hiccup) must not block a photo change:
+      // answered the same way as an unreachable AI — not checked, go ahead.
+      console.error('gamification/record-action check_avatar error:', err);
+      res.status(200).json({ allowed: true, category: null, checked: false });
+    }
+    return;
+  }
+
+  // Also not an XP action — "Laporkan" on a leaderboard row (lib/user-reports.js).
+  // The reporter is wpUserId from verifyWpUser; only the target comes from
+  // the body.
+  if (actionType === 'report_user') {
+    try {
+      res.status(200).json(await fileReport(wpUserId, req.body));
+    } catch (err) {
+      if (err instanceof ReportError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      console.error('gamification/record-action report_user error:', err);
+      res.status(500).json({ error: 'Laporanmu belum terkirim. Coba lagi sebentar.' });
+    }
+    return;
+  }
+
   if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
     res.status(400).json({ error: 'Unknown or missing actionType' });
     return;
@@ -165,6 +221,7 @@ module.exports = async function handler(req, res) {
 
   // Same cache, same reasoning, for the leaderboard's profile picture —
   // the app already knows its own user.avatarUrl (from modwiz/v1/profile).
+  // Stored only through the photo check below, never written directly.
   const avatarUrl = req.body && typeof req.body.avatarUrl === 'string' ? req.body.avatarUrl.trim() : '';
 
   try {
@@ -205,12 +262,19 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    if (firstName || avatarUrl) {
-      const update = { updated_at: new Date().toISOString() };
-      if (firstName) update.first_name = firstName;
-      if (avatarUrl) update.avatar_url = avatarUrl;
+    if (firstName) {
+      const update = { first_name: firstName, updated_at: new Date().toISOString() };
       const { error: nameError } = await supabase.from('gamification_state').update(update).eq('wp_user_id', wpUserId);
-      if (nameError) console.error('gamification/record-action first_name/avatar_url cache failed:', nameError);
+      if (nameError) console.error('gamification/record-action first_name cache failed:', nameError);
+    }
+    // A verdict younger than XP_PATH_RECHECK_MS is trusted as it stands, so
+    // an ordinary check-in costs nothing extra; past that the picture is
+    // fetched again to see whether it changed (this is what catches a photo
+    // swapped on the website). Never allowed to fail the XP grant above.
+    if (avatarUrl) {
+      await moderateAvatarForUser(wpUserId, avatarUrl, { maxAgeMs: XP_PATH_RECHECK_MS }).catch((err) => {
+        console.error('gamification/record-action avatar check failed:', err);
+      });
     }
 
     const { data: state, error: stateError } = await supabase

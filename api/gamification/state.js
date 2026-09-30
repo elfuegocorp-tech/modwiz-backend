@@ -22,6 +22,8 @@ const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards,
 const { listSoulsPackages, FALLBACK_PACKAGES } = require('../../lib/souls-packages');
 const { listUnlocks, CONSUMABLE_PRICES } = require('../../lib/store-products');
 const { relightStateFor } = require('../../lib/streak-relight');
+const { refreshAvatarsForRead } = require('../../lib/avatar-moderation');
+const { reportedPhotosBy } = require('../../lib/user-reports');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -126,6 +128,32 @@ module.exports = async function handler(req, res) {
       const prevVisible = (await computeWeeklyXpRanking(prevWeekStartUtc, weekStartUtc)).filter((r) => !r.hidden);
       const prevMine = prevVisible.find((r) => r.wpUserId === wpUser.id) ?? null;
       const prevThird = prevVisible[2] ?? null;
+
+      // PHOTOS (lib/avatar-moderation.js). A row's avatarUrl is already null
+      // unless its photo passed the check; this pass looks at the rows about
+      // to be sent whose photo has never been checked or has not been
+      // re-looked at lately, and updates them in place. Best-effort: on any
+      // failure those rows simply keep what they had.
+      const shown = [...visible.slice(0, 100), ...prevVisible.slice(0, 3), ...(mine ? [mine] : [])];
+      await refreshAvatarsForRead(shown).catch((err) => {
+        console.error('gamification/state avatar pass failed:', err);
+      });
+      // A photo this caller reported is hidden from THEM from that moment,
+      // whatever an admin later decides — their own "block". Keyed on the
+      // photo's fingerprint, so a different photo from the same person shows.
+      const reportedByMe = await reportedPhotosBy(wpUser.id).catch((err) => {
+        console.error('gamification/state reported-photos read failed:', err);
+        return new Map();
+      });
+      const avatarFor = (r) => (r.avatarHash && reportedByMe.get(r.wpUserId)?.has(r.avatarHash) ? null : r.avatarUrl);
+      // Whether to draw the admin's "Hapus foto" button on a member's sheet.
+      // Display only — admin-grant-souls.js checks the allowlist again itself.
+      const { data: adminRow, error: adminError } = await supabase
+        .from('admin_allowlist')
+        .select('wp_user_id')
+        .eq('wp_user_id', wpUser.id)
+        .maybeSingle();
+      if (adminError) console.error('gamification/state leaderboard admin check failed:', adminError);
       const { data: unseenReward, error: unseenRewardError } = await supabase
         .from('souls_ledger')
         .select('amount')
@@ -143,7 +171,7 @@ module.exports = async function handler(req, res) {
             rank: r.rank,
             wpUserId: r.wpUserId,
             firstName: r.firstName,
-            avatarUrl: r.avatarUrl,
+            avatarUrl: avatarFor(r),
             xpTotal: r.xpTotal,
           })),
           me: {
@@ -162,7 +190,7 @@ module.exports = async function handler(req, res) {
           rank: r.rank,
           wpUserId: r.wpUserId,
           firstName: r.firstName,
-          avatarUrl: r.avatarUrl,
+          avatarUrl: avatarFor(r),
           xpTotal: r.xpTotal,
         })),
         me: {
@@ -173,8 +201,15 @@ module.exports = async function handler(req, res) {
           hidden: iAmHidden,
           sittingOut: iAmSittingOut,
           wpUserId: wpUser.id,
+          isAdmin: !!adminRow,
           firstName: mine ? mine.firstName : null,
           avatarUrl: mine ? mine.avatarUrl : null,
+          // Why the caller sees the default picture on their own row: the
+          // category their photo was blocked for ('admin' when a person
+          // removed it), so the card can say so instead of looking broken.
+          // Null while a photo is merely waiting to be checked.
+          avatarBlocked:
+            mine && (mine.avatarStatus === 'rejected' || mine.avatarStatus === 'removed') ? mine.avatarReason || 'other' : null,
           xpTotal: mine ? mine.xpTotal : 0,
           aboveRank: above ? above.rank : null,
           aboveFirstName: above ? above.firstName : null,

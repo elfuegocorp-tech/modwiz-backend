@@ -1,16 +1,19 @@
-// Allowlisted-admin write endpoint. Two jobs, because Vercel's function count
+// Allowlisted-admin write endpoint. Three jobs, because Vercel's function count
 // is already at its 12 cap and a second file would silently 404:
 //   - default: grant Souls OR Energy to a user (resourceType, default 'souls').
 //     This IS the top-up mechanism for now — no self-serve purchase path yet.
 //   - action 'save_packages': replace the shop's Souls package catalog.
 //     Lives here rather than on a catalog-specific route because the
 //     allowlist check it needs is already written in this file.
+//   - action 'moderate_avatar': an admin's decision on a reported or blocked
+//     profile photo (lib/user-reports.js) — same reason.
 
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { grantEnergy } = require('../../lib/energy');
 const { grantSouls } = require('../../lib/souls');
 const { replaceSoulsPackages } = require('../../lib/souls-packages');
+const { ReportError, decideAsAdmin } = require('../../lib/user-reports');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -54,6 +57,20 @@ module.exports = async function handler(req, res) {
         // they're passed through rather than swallowed into a generic 500.
         console.error('gamification/admin-grant-souls save_packages error:', err);
         res.status(400).json({ error: err.message || 'Could not save packages.' });
+      }
+      return;
+    }
+
+    if (req.body && req.body.action === 'moderate_avatar') {
+      try {
+        res.status(200).json(await decideAsAdmin(wpUser.id, req.body));
+      } catch (err) {
+        if (err instanceof ReportError) {
+          res.status(err.status).json({ error: err.message });
+          return;
+        }
+        console.error('gamification/admin-grant-souls moderate_avatar error:', err);
+        res.status(500).json({ error: 'Could not save the decision right now.' });
       }
       return;
     }

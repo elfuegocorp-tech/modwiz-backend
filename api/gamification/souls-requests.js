@@ -2,9 +2,15 @@
 // the Vercel project's serverless function count limit. Handles both Souls
 // and Energy requests (see request_type on the row) — approving grants
 // whichever resource was actually requested.
+//
+// GET ?view=photo_reports is the admin's other queue — reported members and
+// blocked profile photos (lib/user-reports.js). Here for the same reason:
+// it needs this file's admin check and the repo has no room for a 13th
+// function. Decisions on it are posted to admin-grant-souls.js.
 const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { grantEnergy } = require('../../lib/energy');
+const { listForAdmin } = require('../../lib/user-reports');
 
 async function requireAdmin(req, res) {
   const wpUser = await verifyWpUser(req.headers.authorization).catch(() => null);
@@ -117,7 +123,9 @@ module.exports = async function handler(req, res) {
     const wpUser = await requireAdmin(req, res);
     if (!wpUser) return;
 
-    if (req.method === 'GET') {
+    if (req.method === 'GET' && req.query.view === 'photo_reports') {
+      res.status(200).json(await listForAdmin());
+    } else if (req.method === 'GET') {
       await listPending(req, res);
     } else {
       await approve(req, res, wpUser);
