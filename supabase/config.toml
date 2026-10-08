@@ -72,3 +72,10 @@ verify_jwt = false
 # the relight_streak() SQL function (sql/streak-relight.sql), one transaction.
 [functions.streak]
 verify_jwt = false
+
+# literasi: Pojok Literasi — the article shelf (list with locked articles cut
+# to their hook, bookmark, like, shared). Same WordPress Basic header. Souls
+# unlocks and read-XP stay on the Vercel side (spend-souls / record-action),
+# where the balance and the XP ledger live.
+[functions.literasi]
+verify_jwt = false

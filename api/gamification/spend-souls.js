@@ -26,6 +26,7 @@ const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { addExtraEnergy, setExtraEnergyEnabled, ENERGY_PER_SOUL } = require('../../lib/energy');
 const { priceOf, grandfatherAllowed, consumablePriceOf } = require('../../lib/store-products');
+const { isLiterasiProduct, literasiPriceOf } = require('../../lib/literasi');
 
 async function debitSouls(wpUserId, amount, reason) {
   const { data: current, error: fetchError } = await supabase
@@ -76,7 +77,19 @@ async function handleUnlockProduct(req, res, wpUser) {
   const productId = req.body && req.body.productId;
   // The price is looked up here, never read from the request. The app sends
   // an id and nothing else — see lib/store-products.js.
-  const listPrice = priceOf(productId);
+  let listPrice = priceOf(productId);
+  // Pojok Literasi articles ('literasi:R-04') are priced from their table row,
+  // not from STORE_PRICES — see lib/literasi.js. Same claim-then-debit path
+  // below, same user_unlocks row, so an article unlock is as permanent and as
+  // idempotent as a Mandala's.
+  if (listPrice === null && isLiterasiProduct(productId)) {
+    const literasi = await literasiPriceOf(wpUser.id, productId);
+    if (literasi.openByPrivilege) {
+      res.status(400).json({ error: 'Sudah terbuka dengan Modwiz Privilege.', openByPrivilege: true });
+      return;
+    }
+    listPrice = literasi.price;
+  }
   if (listPrice === null) {
     res.status(400).json({ error: 'Unknown product' });
     return;

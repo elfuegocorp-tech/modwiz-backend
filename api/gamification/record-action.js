@@ -11,6 +11,7 @@ const { verifyWpUser } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { courseSoulsReward } = require('../../lib/course-rewards');
 const { grantSouls } = require('../../lib/souls');
+const { resolveLiterasiRead } = require('../../lib/literasi');
 const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
 const { maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
 const { moderateAvatarForUser, precheckAvatar, MAX_IMAGE_BASE64_CHARS, XP_PATH_RECHECK_MS } = require('../../lib/avatar-moderation');
@@ -42,7 +43,7 @@ module.exports = async function handler(req, res) {
   }
   const wpUserId = wpUser.id;
 
-  const actionType = req.body && req.body.actionType;
+  let actionType = req.body && req.body.actionType;
 
   // Not an XP action — acks the leaderboard reward popup so it doesn't show
   // again. Handled here rather than on state.js (documented read-only) or a
@@ -194,6 +195,27 @@ module.exports = async function handler(req, res) {
       res.status(500).json({ error: 'Laporanmu belum terkirim. Coba lagi sebentar.' });
     }
     return;
+  }
+
+  // Pojok Literasi: reading pays XP once per article, and the amount depends
+  // on whether the article was unlocked — decided from the row and the
+  // reader's own unlocks (lib/literasi.js), never from the app. A locked
+  // article nobody paid for is refused outright: its text never left the
+  // server, so nobody can have read it. The same call stamps read_at.
+  if (actionType === 'literasi_read') {
+    const articleId = req.body && typeof req.body.refId === 'string' ? req.body.refId : '';
+    try {
+      const resolved = await resolveLiterasiRead(wpUserId, articleId);
+      if (!resolved.ok) {
+        res.status(resolved.status).json({ error: resolved.error });
+        return;
+      }
+      actionType = resolved.actionType;
+    } catch (err) {
+      console.error('gamification/record-action literasi_read error:', err);
+      res.status(500).json({ error: 'Could not update your progress right now.' });
+      return;
+    }
   }
 
   if (typeof actionType !== 'string' || !XP_ACTIONS[actionType]) {
