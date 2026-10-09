@@ -24,6 +24,7 @@ const { listUnlocks, CONSUMABLE_PRICES } = require('../../lib/store-products');
 const { relightStateFor } = require('../../lib/streak-relight');
 const { refreshAvatarsForRead } = require('../../lib/avatar-moderation');
 const { reportedPhotosBy } = require('../../lib/user-reports');
+const { fetchMemberStats } = require('../../lib/member-stats');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -97,7 +98,7 @@ module.exports = async function handler(req, res) {
       return;
     }
     try {
-      const [rowRes, winsRes, privilegeRes] = await Promise.all([
+      const [rowRes, winsRes, privilegeRes, live] = await Promise.all([
         supabase
           .from('gamification_state')
           .select('first_name, joined_at, courses_count, certificates_count')
@@ -109,9 +110,26 @@ module.exports = async function handler(req, res) {
           .eq('wp_user_id', memberId)
           .like('reason', 'leaderboard:week_%:rank1'),
         supabase.rpc('is_privilege', { p_wp_user_id: memberId }),
+        // Courses and certificates straight from WordPress (lib/member-stats.js),
+        // so the card is right for a member who has never logged in since
+        // the columns were added. Null when WordPress can't answer; then the
+        // cached columns below stand in.
+        fetchMemberStats(memberId),
       ]);
       if (rowRes.error) throw rowRes.error;
       if (winsRes.error) throw winsRes.error;
+      if (live) {
+        // Refresh the cache so the fallback stays close to the truth. Not
+        // awaited on the response path's error: a failed cache write is a
+        // log line, not a broken card.
+        const { error: cacheError } = await supabase
+          .from('gamification_state')
+          .upsert(
+            { wp_user_id: memberId, courses_count: live.coursesCount, certificates_count: live.certificatesCount, updated_at: new Date().toISOString() },
+            { onConflict: 'wp_user_id' }
+          );
+        if (cacheError) console.error('gamification/state member cache write failed:', cacheError.message);
+      }
       // A failed Privilege check reads as Free rather than failing the card —
       // the emblem is the one cell that is decoration, not a number.
       if (privilegeRes.error) console.error('gamification/state member is_privilege failed:', privilegeRes.error.message);
@@ -136,8 +154,8 @@ module.exports = async function handler(req, res) {
         wpUserId: memberId,
         firstName: rowRes.data?.first_name ?? null,
         joinedAt,
-        coursesCount: rowRes.data?.courses_count ?? 0,
-        certificatesCount: rowRes.data?.certificates_count ?? 0,
+        coursesCount: live ? live.coursesCount : rowRes.data?.courses_count ?? 0,
+        certificatesCount: live ? live.certificatesCount : rowRes.data?.certificates_count ?? 0,
         winsCount: winsRes.count ?? 0,
         isPrivilege: privilegeRes.data === true,
       });
