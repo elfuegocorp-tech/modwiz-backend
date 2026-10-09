@@ -8,6 +8,7 @@
 alter table literasi_articles add column if not exists slug text;
 alter table literasi_articles add column if not exists slides_v2 jsonb;
 create unique index if not exists literasi_articles_slug_idx on literasi_articles (slug);
+alter view literasi_article_counts set (security_invoker = on);
 
 update literasi_articles as a set slug = v.slug, updated_at = now()
 from (values

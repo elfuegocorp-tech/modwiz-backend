@@ -54,7 +54,11 @@ alter table literasi_user_articles enable row level security;
 
 -- The counters under the reader's buttons (Rheza, 9 Okt: every button shows a
 -- number). Counted on read; the shelf is small enough that a view is fine.
-create or replace view literasi_article_counts as
+-- security_invoker: the view reads with the CALLER's rights, not its creator's
+-- (Supabase advisor 'Security Definer View', 9 Okt 2026). The Edge Function
+-- reads it with the service role either way; this only closes the hole for
+-- anyone else who could reach the view.
+create or replace view literasi_article_counts with (security_invoker = on) as
   select article_id,
          count(liked_at)      as likes,
          count(bookmarked_at) as bookmarks,
