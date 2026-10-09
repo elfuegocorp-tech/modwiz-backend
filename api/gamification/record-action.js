@@ -7,7 +7,7 @@
 // check-in, either counts once/day) and is only ever advanced by the two
 // check-in action types, unchanged from before.
 
-const { verifyWpUser } = require('../../lib/wp-auth');
+const { verifyWpUser, WP_BASE_URL } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { courseSoulsReward } = require('../../lib/course-rewards');
 const { grantSouls } = require('../../lib/souls');
@@ -16,6 +16,21 @@ const { XP_ACTIONS, awardXp, advanceStreak } = require('../../lib/xp-actions');
 const { maybeGrantWeeklyRewards } = require('../../lib/leaderboard');
 const { moderateAvatarForUser, precheckAvatar, MAX_IMAGE_BASE64_CHARS, XP_PATH_RECHECK_MS } = require('../../lib/avatar-moderation');
 const { ReportError, fileReport } = require('../../lib/user-reports');
+
+// The account's WordPress registration date, as WordPress reports it for
+// the credentials given. `context=edit` is what exposes registered_date on
+// wp/v2/users/me, and a user may always read their own record in that
+// context. Returns an ISO string, or null when WordPress has nothing usable.
+async function registeredDateFor(authHeader) {
+  const res = await fetch(`${WP_BASE_URL}/wp-json/wp/v2/users/me?context=edit`, {
+    headers: { Authorization: authHeader },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (typeof data.registered_date !== 'string') return null;
+  const parsed = new Date(data.registered_date);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
 
 function requireLocalDate(localDate) {
   if (typeof localDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) {
@@ -71,12 +86,38 @@ module.exports = async function handler(req, res) {
   // user's next check-in. Uses upsert, unlike the two check-in call sites'
   // plain .update(), because a brand-new user can hit this before
   // awardXp/advanceStreak has ever created their gamification_state row.
+  //
+  // Since 2026-10-09 the same call also fills the member card's three cached
+  // facts (sql/member-card.sql): courses_count and certificates_count from
+  // the body (the app's own modwiz/v1/profile numbers, as the Kisah card
+  // snapshots them), and joined_at from WordPress itself — read here with
+  // the caller's credentials, so the date can't be made up by a client.
+  // The WordPress read happens only while the row has no date yet: one
+  // extra round-trip per account, not per login.
   if (actionType === 'sync_profile') {
     const syncFirstName = typeof req.body.firstName === 'string' ? req.body.firstName.trim() : '';
     const syncAvatarUrl = typeof req.body.avatarUrl === 'string' ? req.body.avatarUrl.trim() : '';
+    const syncCount = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const syncCourses = syncCount(req.body.coursesCount);
+    const syncCertificates = syncCount(req.body.certificatesCount);
     try {
       if (syncFirstName) {
         const row = { wp_user_id: wpUserId, first_name: syncFirstName, updated_at: new Date().toISOString() };
+        if (syncCourses != null) row.courses_count = syncCourses;
+        if (syncCertificates != null) row.certificates_count = syncCertificates;
+        const { data: existing, error: existingError } = await supabase
+          .from('gamification_state')
+          .select('joined_at')
+          .eq('wp_user_id', wpUserId)
+          .maybeSingle();
+        if (existingError) throw existingError;
+        if (!existing || !existing.joined_at) {
+          const joinedAt = await registeredDateFor(authHeader).catch((err) => {
+            console.error('gamification/record-action sync_profile registered_date read failed:', err);
+            return null;
+          });
+          if (joinedAt) row.joined_at = joinedAt;
+        }
         const { error } = await supabase.from('gamification_state').upsert(row, { onConflict: 'wp_user_id' });
         if (error) throw error;
       }

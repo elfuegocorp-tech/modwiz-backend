@@ -80,6 +80,74 @@ module.exports = async function handler(req, res) {
     console.error('gamification/state weekly reward grant failed:', err);
   });
 
+  // One member's card — what the Leaderboards tab shows when a row or podium
+  // place is tapped (modwiz-app components/leaderboard/member-sheet.tsx,
+  // Rheza 2026-10-09): joined date, courses, certificates, weeks won, and
+  // whether they are Modwiz Privilege. Name and photo are NOT repeated here;
+  // the app already holds the board's (moderated) copy of both.
+  //
+  // Answered before the weekly-reward side effect like the two views above:
+  // opening someone's card is a question, not a session tick. The three
+  // cached columns come from sql/member-card.sql; wins are the same ledger
+  // count the Kisah card uses; Privilege is the server's own is_privilege().
+  if (req.query.view === 'member') {
+    const memberId = Number.parseInt(String(req.query.wpUserId ?? ''), 10);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      res.status(400).json({ error: 'wpUserId must be a positive integer' });
+      return;
+    }
+    try {
+      const [rowRes, winsRes, privilegeRes] = await Promise.all([
+        supabase
+          .from('gamification_state')
+          .select('first_name, joined_at, courses_count, certificates_count')
+          .eq('wp_user_id', memberId)
+          .maybeSingle(),
+        supabase
+          .from('souls_ledger')
+          .select('id', { count: 'exact', head: true })
+          .eq('wp_user_id', memberId)
+          .like('reason', 'leaderboard:week_%:rank1'),
+        supabase.rpc('is_privilege', { p_wp_user_id: memberId }),
+      ]);
+      if (rowRes.error) throw rowRes.error;
+      if (winsRes.error) throw winsRes.error;
+      // A failed Privilege check reads as Free rather than failing the card —
+      // the emblem is the one cell that is decoration, not a number.
+      if (privilegeRes.error) console.error('gamification/state member is_privilege failed:', privilegeRes.error.message);
+
+      // No cached date yet (the member hasn't logged in since
+      // sql/member-card.sql shipped): their first XP event is the oldest
+      // thing this stack knows about them, and close enough for "Bergabung".
+      let joinedAt = rowRes.data?.joined_at ?? null;
+      if (!joinedAt) {
+        const { data: firstXp, error: firstXpError } = await supabase
+          .from('xp_events')
+          .select('created_at')
+          .eq('wp_user_id', memberId)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (firstXpError) throw firstXpError;
+        joinedAt = firstXp?.created_at ?? null;
+      }
+
+      res.status(200).json({
+        wpUserId: memberId,
+        firstName: rowRes.data?.first_name ?? null,
+        joinedAt,
+        coursesCount: rowRes.data?.courses_count ?? 0,
+        certificatesCount: rowRes.data?.certificates_count ?? 0,
+        winsCount: winsRes.count ?? 0,
+        isPrivilege: privilegeRes.data === true,
+      });
+    } catch (err) {
+      console.error('gamification/state member read failed:', err);
+      res.status(500).json({ error: 'Kartu anggota belum bisa dibuka. Coba lagi sebentar.' });
+    }
+    return;
+  }
+
   if (req.query.view === 'leaderboard') {
     try {
       const { weekStartUtc, weekStartDateStr } = mostRecentMondayWibUtc();
