@@ -176,8 +176,32 @@ async function mark(
   });
 }
 
-Deno.serve(
-  withAuth('literasi', async (req, user, path) => {
+// GET /literasi/public?slug=<slug> — the ONE route without a reader: the
+// share-link page on modwizmastery.com (wordpress/modwiz-literasi-link) asks
+// for an article's public face so WhatsApp can draw a preview. It hands out
+// exactly what the shelf already shows everyone — title, shelf, the cover
+// line, price — never a slide behind the lock.
+async function handlePublic(url: URL): Promise<Response> {
+  const slug = (url.searchParams.get('slug') ?? '').trim();
+  if (!/^[a-z0-9-]{1,80}$/.test(slug)) return json({ error: 'Not found' }, 404);
+  const { data, error } = await supabase
+    .from('literasi_articles')
+    .select('id, slug, category, title, access, price, slides, slides_v2')
+    .eq('status', 'published')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return json({ error: 'Not found' }, 404);
+  const a = data as ArticleRow & { slug: string };
+  const cover = a.slides_v2?.slides?.[0] as { hook?: string } | undefined;
+  const hook = cover?.hook ?? a.slides[0]?.text ?? '';
+  return new Response(
+    JSON.stringify({ id: a.id, slug: a.slug, category: a.category, title: a.title, hook, access: a.access, price: a.price }),
+    { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=600' } },
+  );
+}
+
+const authed = withAuth('literasi', async (req, user, path) => {
     if (req.method === 'GET' && path === '') return handleList(user);
 
     if (req.method === 'POST') {
@@ -190,5 +214,17 @@ Deno.serve(
     }
 
     return json({ error: 'Not found' }, 404);
-  }),
-);
+});
+
+Deno.serve(async (req: Request) => {
+  const url = new URL(req.url);
+  if (req.method === 'GET' && /\/literasi\/public\/?$/.test(url.pathname)) {
+    try {
+      return await handlePublic(url);
+    } catch (err) {
+      console.error('literasi/public', err);
+      return json({ error: 'Server error' }, 500);
+    }
+  }
+  return authed(req);
+});
