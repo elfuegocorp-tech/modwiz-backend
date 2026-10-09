@@ -40,6 +40,10 @@ type ArticleRow = {
   access: 'free' | 'souls';
   price: number | null;
   slides: Slide[];
+  /** Public address (modwizmastery.com/literasi/<slug>); null until sql/literasi-v2.sql ran. */
+  slug: string | null;
+  /** The reader-v2 script ({ lead, accent, long, slides }), null for articles still on the old reader. */
+  slides_v2: { lead: string; accent: string; long?: boolean; slides: unknown[] } | null;
   featured: boolean;
   sort: number;
   published_at: string;
@@ -81,7 +85,7 @@ async function handleList(user: WpUser): Promise<Response> {
   const [{ data: rows, error }, mineRes, countsRes, unlocks, privilege] = await Promise.all([
     supabase
       .from('literasi_articles')
-      .select('id, category, title, access, price, slides, featured, sort, published_at')
+      .select('id, category, title, access, price, slides, slug, slides_v2, featured, sort, published_at')
       .eq('status', 'published')
       .order('sort', { ascending: true }),
     supabase
@@ -106,11 +110,14 @@ async function handleList(user: WpUser): Promise<Response> {
       price: a.price,
       featured: a.featured,
       publishedAt: a.published_at,
-      slideCount: a.slides.length,
+      slug: a.slug,
+      slideCount: a.slides_v2 ? a.slides_v2.slides.length : a.slides.length,
       locked,
       // A locked article travels as its hook only. The count tells the reader
-      // how much is behind the door without handing over any of it.
+      // how much is behind the door without handing over any of it. The v2
+      // script obeys the same rule: its cover slide, nothing more.
       slides: locked ? a.slides.slice(0, 1) : a.slides,
+      slidesV2: a.slides_v2 ? (locked ? { ...a.slides_v2, slides: a.slides_v2.slides.slice(0, 1) } : a.slides_v2) : null,
     };
   });
 

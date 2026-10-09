@@ -24,6 +24,8 @@ create table if not exists literasi_articles (
   price        integer,                     -- 5 or 10 when access = 'souls' (LITERASI_PRICE standard / deep)
   source       text,                        -- Oracle's provenance line; never shown to readers
   slides       jsonb not null,              -- [{kind:'hook'|'wow'|'aha'|'coba'|'cta', text, cta?:{label}}]
+  slug         text,                        -- public address: modwizmastery.com/literasi/<slug> (sql/literasi-v2.sql fills it)
+  slides_v2    jsonb,                       -- reader-v2 script {lead, accent, long, slides}; null = old reader
   featured     boolean not null default false,
   status       text not null default 'published', -- 'draft' | 'published'
   sort         integer not null default 0,  -- shelf order inside a category
