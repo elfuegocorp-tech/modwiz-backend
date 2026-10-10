@@ -15,7 +15,7 @@
 // Vercel's 12-serverless-function cap (this file already merged in Energy for
 // the same reason).
 
-const { verifyWpUser } = require('../../lib/wp-auth');
+const { verifyWpUserWithRoles } = require('../../lib/wp-auth');
 const { supabase } = require('../../lib/supabase');
 const { getEnergyState, msUntilReset, msUntilWeeklyReset } = require('../../lib/energy');
 const { mostRecentMondayWibUtc, computeWeeklyXpRanking, maybeGrantWeeklyRewards, hidAtSomePointDuring } = require('../../lib/leaderboard');
@@ -25,6 +25,7 @@ const { relightStateFor } = require('../../lib/streak-relight');
 const { refreshAvatarsForRead } = require('../../lib/avatar-moderation');
 const { reportedPhotosBy } = require('../../lib/user-reports');
 const { fetchMemberStats } = require('../../lib/member-stats');
+const { roleFromSlugs, staffRoleFor, canSeeContact, canSeeReports, parseRange, boardCounts, buildReport, memberHistory } = require('../../lib/staff');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -38,7 +39,8 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const wpUser = await verifyWpUser(authHeader).catch(() => null);
+  // With the caller's WordPress role slugs, for the staff views (lib/staff.js).
+  const wpUser = await verifyWpUserWithRoles(authHeader).catch(() => null);
   if (!wpUser) {
     res.status(401).json({ error: 'Could not verify your Modwiz Mastery login' });
     return;
@@ -77,6 +79,41 @@ module.exports = async function handler(req, res) {
     return;
   }
 
+  // STAFF VIEWS (lib/staff.js, Rheza 2026-10-11). Questions, not session
+  // ticks, so answered before the weekly-reward side effect. Both are refused
+  // outright for anyone but admin / Chief, whatever the app asked for.
+  //   staff_report — Home's Laporan card: ?from=&to= (WIB dates, inclusive)&period=
+  //   staff_member — one member's Souls and XP history: ?wpUserId=&from=&to=
+  if (req.query.view === 'staff_report' || req.query.view === 'staff_member') {
+    try {
+      const role = await staffRoleFor(wpUser);
+      if (!canSeeReports(role)) {
+        res.status(403).json({ error: 'Halaman ini hanya untuk Admin dan Chief.' });
+        return;
+      }
+      const range = parseRange(req.query.from, req.query.to);
+      if (range.error) {
+        res.status(400).json({ error: range.error });
+        return;
+      }
+      if (req.query.view === 'staff_report') {
+        // ?period= (day | week | month | custom) picks what the deltas compare to.
+        res.status(200).json(await buildReport(range, String(req.query.period ?? 'custom')));
+        return;
+      }
+      const memberId = Number.parseInt(String(req.query.wpUserId ?? ''), 10);
+      if (!Number.isInteger(memberId) || memberId <= 0) {
+        res.status(400).json({ error: 'wpUserId must be a positive integer' });
+        return;
+      }
+      res.status(200).json(await memberHistory(memberId, range));
+    } catch (err) {
+      console.error(`gamification/state ${req.query.view} failed:`, err);
+      res.status(500).json({ error: 'Data belum bisa dibuka. Coba lagi sebentar.' });
+    }
+    return;
+  }
+
   await maybeGrantWeeklyRewards().catch((err) => {
     console.error('gamification/state weekly reward grant failed:', err);
   });
@@ -98,6 +135,10 @@ module.exports = async function handler(req, res) {
       return;
     }
     try {
+      // Staff see the member's WhatsApp and email on the card; Admin and
+      // Chief also get the door to the history page (lib/staff.js).
+      const viewerRole = await staffRoleFor(wpUser);
+      const withContact = canSeeContact(viewerRole);
       const [rowRes, winsRes, privilegeRes, live] = await Promise.all([
         supabase
           .from('gamification_state')
@@ -114,7 +155,7 @@ module.exports = async function handler(req, res) {
         // so the card is right for a member who has never logged in since
         // the columns were added. Null when WordPress can't answer; then the
         // cached columns below stand in.
-        fetchMemberStats(memberId),
+        fetchMemberStats(memberId, { contact: withContact }),
       ]);
       if (rowRes.error) throw rowRes.error;
       if (winsRes.error) throw winsRes.error;
@@ -158,6 +199,11 @@ module.exports = async function handler(req, res) {
         certificatesCount: live ? live.certificatesCount : rowRes.data?.certificates_count ?? 0,
         winsCount: winsRes.count ?? 0,
         isPrivilege: privilegeRes.data === true,
+        viewerRole,
+        canViewHistory: canSeeReports(viewerRole),
+        // Only ever present for staff. Null inside means WordPress could not
+        // answer (or still runs the v1 snippet) — the box says so.
+        ...(withContact ? { contact: live?.contact ?? null } : {}),
       });
     } catch (err) {
       console.error('gamification/state member read failed:', err);
@@ -240,6 +286,15 @@ module.exports = async function handler(req, res) {
         .eq('wp_user_id', wpUser.id)
         .maybeSingle();
       if (adminError) console.error('gamification/state leaderboard admin check failed:', adminError);
+      const staffRole = roleFromSlugs(wpUser.roles, !!adminRow);
+      // The board stops at 100; Admin and Chief also get the real head count.
+      // Best-effort — a failed count drops the staff card, never the board.
+      const staffCounts = canSeeReports(staffRole)
+        ? await boardCounts(ranking.length).catch((err) => {
+            console.error('gamification/state leaderboard staff counts failed:', err);
+            return null;
+          })
+        : null;
       const { data: unseenReward, error: unseenRewardError } = await supabase
         .from('souls_ledger')
         .select('amount')
@@ -272,6 +327,7 @@ module.exports = async function handler(req, res) {
         },
         weekStart: weekStartDateStr,
         resetInMs: weekEndUtc.getTime() - Date.now(),
+        ...(staffCounts ? { staff: staffCounts } : {}),
         entries: visible.slice(0, 100).map((r) => ({
           rank: r.rank,
           wpUserId: r.wpUserId,
@@ -288,6 +344,7 @@ module.exports = async function handler(req, res) {
           sittingOut: iAmSittingOut,
           wpUserId: wpUser.id,
           isAdmin: !!adminRow,
+          staffRole,
           firstName: mine ? mine.firstName : null,
           avatarUrl: mine ? mine.avatarUrl : null,
           // Why the caller sees the default picture on their own row: the
@@ -364,6 +421,10 @@ module.exports = async function handler(req, res) {
       xpTotal: state ? state.xp_total : 0,
       soulsBalance: state ? state.souls_balance : 0,
       isAdmin: !!adminRow,
+      // 'admin' | 'chief' | 'crm' | null — which staff views the app draws
+      // (Home's Laporan card for admin/chief). Display only: every staff view
+      // checks the role again on its own request.
+      staffRole: roleFromSlugs(wpUser.roles, !!adminRow),
       // Carried on the main payload (not just ?view=leaderboard) so the
       // Pengaturan switch can render from the /state every screen already
       // fetches, instead of pulling 100 other users' rows to read one bool.
